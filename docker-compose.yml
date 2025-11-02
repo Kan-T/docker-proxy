@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  shadowsocks-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shadowsocks-proxy
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8388}:${SERVER_PORT:-8388}/tcp"
+      - "${SERVER_PORT:-8388}:${SERVER_PORT:-8388}/udp"
+    volumes:
+      - ./logs:/var/log/shadowsocks
+      - ./config:/etc/shadowsocks
+    environment:
+      - SERVER_PORT=${SERVER_PORT:-8388}
+      - PASSWORD=${PASSWORD:-your_password}
+      - METHOD=${METHOD:-aes-256-gcm}
+      - TIMEOUT=${TIMEOUT:-300}
+      - DNS_SERVER=${DNS_SERVER:-8.8.8.8}
+      - UDPSUPPORT=${UDPSUPPORT:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "ss-tunnel", "-c", "/etc/shadowsocks/shadowsocks.json", "-L", "8.8.8.8:53", "-b", "0.0.0.0", "-l", "5353", "&&", "sleep", "5", "&&", "curl", "-s", "-m", "5", "https://www.google.com"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  logs:
+  ssl:
+  config:
