@@ -1,17 +1,35 @@
 # 使用Ubuntu作为基础镜像，它有预编译的shadowsocks-libev包
 FROM ubuntu:22.04
 
-# 设置维护者信息
+# 添加构建参数支持版本管理
+ARG IMAGE_VERSION=latest
 LABEL maintainer="Docker Proxy Service <docker-proxy@example.com>"
+LABEL version="${IMAGE_VERSION}"
+LABEL build-date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+# 使用国内Ubuntu软件源加速构建
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
 
 # 安装shadowsocks-libev和其他必要工具
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends shadowsocks-libev supervisor curl && \
+    apt-get install -y --no-install-recommends \
+        shadowsocks-libev \
+        supervisor \
+        curl \
+        netcat-openbsd \
+        jq \
+        procps \
+        && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # 创建必要的目录
-RUN mkdir -p /etc/shadowsocks /var/log/supervisor
+RUN mkdir -p \
+    /etc/shadowsocks \
+    /var/log/supervisor \
+    /var/log/shadowsocks \
+    /var/run/shadowsocks
 
 # 复制配置文件模板
 COPY config/shadowsocks.json.template /etc/shadowsocks/
@@ -21,6 +39,10 @@ COPY config/supervisord.conf /etc/supervisor/conf.d/
 COPY scripts/start.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/start.sh
 
+# 添加监控脚本
+COPY scripts/monitor.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/monitor.sh
+
 # 设置环境变量默认值
 ENV SERVER_PORT=8388 \
     PASSWORD=your_password \
@@ -28,17 +50,22 @@ ENV SERVER_PORT=8388 \
     TIMEOUT=300 \
     DNS_SERVER=8.8.8.8 \
     UDPSUPPORT=true \
-    LOG_LEVEL=info
+    LOG_LEVEL=info \
+    INSTANCE_ID=1 \
+    METRICS_PORT=9090
 
 # 暴露端口
-EXPOSE 8388/tcp 8388/udp
+EXPOSE 8388/tcp 8388/udp ${METRICS_PORT}/tcp
 
-# 健康检查
+# 优化健康检查，减少外部依赖
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD ss-tunnel -c /etc/shadowsocks/shadowsocks.json -L 8.8.8.8:53 -b 0.0.0.0 -l 5353 > /dev/null 2>&1 & sleep 5 && curl -s -m 5 https://www.google.com > /dev/null 2>&1 || exit 1
+  CMD sh -c "nc -z 0.0.0.0 8388 && ss-server -c /etc/shadowsocks/shadowsocks.json -t 1 > /dev/null 2>&1"
 
 # 设置工作目录
 WORKDIR /etc/shadowsocks
 
-# 启动脚本
+# 添加卷定义
+VOLUME ["/var/log/shadowsocks", "/etc/shadowsocks"]
+
+# 启动脚本 - 使用supervisor管理多个进程
 CMD ["/usr/local/bin/start.sh"]
