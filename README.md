@@ -165,22 +165,47 @@ docker logs -f shadowsocks-proxy
 
 ## 部署到生产环境
 
-### AWS ECS部署
+### 阿里云ECS直接构建部署
 
-1. **构建和推送Docker镜像**:
+本项目采用直接在阿里云ECS上构建和部署Docker镜像的方式，通过GitHub Actions实现自动化部署：
+
+1. **ECS环境准备**:
+   - 安装Docker、Docker Compose和Git
+   - 配置Docker国内镜像源以加速构建
+   - 创建部署目录：`/data/docker-proxy/prod`
+
+2. **GitHub Actions自动部署**:
+   - 推送代码到`main`分支自动触发部署流程
+   - 代码检查和测试通过后，将在ECS上执行部署脚本
+   - 部署脚本会自动克隆最新代码并构建运行Docker容器
+
+3. **手动部署（备用）**:
 
 ```bash
-docker build -t your-ecr-repository/shadowsocks-proxy:latest .
-docker push your-ecr-repository/shadowsocks-proxy:latest
+# 登录ECS实例
+ssh user@ecs-instance-ip
+
+# 克隆或更新代码
+cd /data/docker-proxy/prod
+git pull
+
+# 配置环境变量
+cp .env.example .env
+# 编辑.env文件设置配置
+
+# 构建并启动服务
+docker-compose up -d --build
 ```
-
-2. **配置ECS任务定义**，设置适当的环境变量和资源限制
-
-3. **创建ECS服务**，配置自动扩展和负载均衡（如需要）
 
 ### 安全组配置
 
-确保在ECS或EC2安全组中开放相应的代理端口（默认8388），并限制访问来源IP以增强安全性。
+确保在ECS安全组中开放相应的代理端口（默认8388），并限制访问来源IP以增强安全性。
+
+### CI/CD详情
+
+详细的GitHub Actions部署流程和配置说明请参考：
+- [GitHub Actions部署指南](./docs/github-actions-deployment-guide.md)
+- [部署指南](./docs/deployment-guide.md)
 
 ## 性能优化
 

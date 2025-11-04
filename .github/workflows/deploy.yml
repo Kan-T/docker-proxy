@@ -1,0 +1,78 @@
+name: Docker Proxy 自动部署流程
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # 代码检查和测试
+  code-check:
+    name: 代码检查和单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置权限
+        run: |
+          chmod +x scripts/*.sh
+          chmod +x tests/*.sh
+      
+      - name: 运行测试脚本
+        run: ./tests/test_proxy.sh
+
+  # 生产环境部署（需要手动审批）
+  deploy-prod:
+    name: 部署到生产环境
+    needs: code-check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.PROD_ENV_URL || 'https://proxy.example.com' }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      
+      - name: 设置阿里云CLI
+        uses: zhikiri/setup-aliyun-cli@v1
+        with:
+          access-key-id: ${{ secrets.ALI_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALI_ACCESS_KEY_SECRET }}
+          region-id: ${{ secrets.ALI_REGION }}
+      
+      - name: 设置权限
+        run: chmod +x scripts/deploy-to-ecs.sh
+      
+      - name: 部署到阿里云
+        run: |
+          # 执行部署脚本
+          export GITHUB_REPOSITORY=${{ github.repository }}
+          export GITHUB_SHA=${{ github.sha }}
+          ./scripts/deploy-to-ecs.sh -e prod -r ${{ secrets.ALI_REGION }}
+
+  # 部署通知
+  notify:
+    name: 部署通知
+    needs: [deploy-prod]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取部署状态
+        run: |
+          if [ "${{ needs.deploy-prod.result }}" == "success" ]; then
+            echo "部署状态: 成功"
+            STATUS="成功"
+          else
+            echo "部署状态: 失败"
+            STATUS="失败"
+          fi
+          echo "STATUS=$STATUS" >> $GITHUB_ENV
+
+      - name: 发送通知
+        run: |
+          echo "部署 ${{ env.STATUS }}"
+          # 这里可以添加实际的通知逻辑
+          # 例如发送邮件、Slack消息等

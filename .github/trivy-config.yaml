@@ -1,0 +1,50 @@
+# Trivy安全扫描配置
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+ignoreUnfixed: false
+
+vulnerability:
+  # 忽略特定的漏洞ID
+  ignoreIds:
+    # 示例：忽略特定版本的已知低风险漏洞
+    # - CVE-2023-0001
+    # - CVE-2023-0002
+    
+  # 设置漏洞检查的漏洞数据库供应商
+  vendorSeverity:
+    - type: redhat
+      severity: [CRITICAL, HIGH]
+    - type: nvd
+      severity: [CRITICAL, HIGH]
+
+# 忽略特定的软件包
+# ignorePkgs:
+#   - package-name@version
+
+# 忽略特定路径的漏洞
+# ignorePaths:
+#   - /path/to/ignore
+
+# 安全检查设置
+safetyChecks:
+  - vuln       # 漏洞扫描
+  - config     # 配置扫描
+  - secret     # 密钥扫描
+  - license    # 许可证扫描
+
+# 输出格式配置
+format: "sarif"
+output: "trivy-results.sarif"
+
+# 超时设置
+timeout: "10m"
+
+# 数据库更新设置
+db:
+  autoUpdate: true
+  # 离线模式设置
+  # skipUpdate: true
+  # cacheDir: "/path/to/cache"
