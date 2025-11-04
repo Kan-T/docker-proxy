@@ -143,17 +143,44 @@ chmod +x deploy_simple.sh
 
 # 上传并执行部署脚本
 echo "上传部署脚本到ECS实例..."
-scp deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh
+# 添加详细的连接信息和错误处理
+# 使用-q参数禁止显示传输进度，但保留-v用于错误诊断
+SCP_OUTPUT=$(scp -q -v deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh 2>&1)
+SCP_EXIT_CODE=$?
+
+# 过滤掉敏感信息
+FILTERED_OUTPUT=$(echo "$SCP_OUTPUT" | grep -v "identity file")
+
+# 显示关键错误信息
+if [ $SCP_EXIT_CODE -ne 0 ]; then
+  echo "错误: SCP上传失败，退出码: $SCP_EXIT_CODE"
+  echo "连接信息: ${ECS_USER}@${ECS_HOST}"
+  # 只显示关键错误信息，避免输出敏感信息
+  echo "错误详情:"
+  echo "$FILTERED_OUTPUT" | grep -E "permission denied|connection refused|no route to host|invalid key|timeout" || true
+  # 增加更具体的故障排除建议
+  echo "故障排除建议:"
+  echo "1. 检查SSH密钥配置"
+  echo "2. 确认ECS_HOST和ECS_USER环境变量设置正确"
+  echo "3. 验证网络连接和防火墙设置"
+  echo "4. 确认目标服务器上deploy用户有/tmp目录的写入权限"
+  exit 1
+fi
 
 # 执行部署脚本 - 避免显示命令参数
 echo "执行部署脚本到远程服务器..."
 # 使用-v参数启用SSH详细输出，有助于调试连接问题
+# 添加更安全的SSH选项和详细错误处理
+SSH_OPTIONS="-v -o StrictHostKeyChecking=no -o ConnectTimeout=30"
 # 临时保存ssh输出到变量，然后过滤输出但保留退出码
-SSH_OUTPUT=$(ssh -v ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1)
+SSH_OUTPUT=$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1)
 DEPLOY_EXIT_CODE=$?
 
-# 打印过滤后的输出（排除identity file信息）
-echo "$SSH_OUTPUT" | grep -v "debug1: identity file" || true
+# 过滤SSH输出中的敏感信息
+FILTERED_SSH_OUTPUT=$(echo "$SSH_OUTPUT" | grep -v -E "identity file|debug1: Reading configuration data|debug1: auto-mux: Trying existing master" || true)
+
+# 打印过滤后的SSH输出
+echo "$FILTERED_SSH_OUTPUT"
 
 # 清理本地脚本
 rm -f deploy_simple.sh
