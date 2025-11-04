@@ -154,13 +154,26 @@ echo "- GITHUB_REPO: $GITHUB_REPO"
 echo "- GITHUB_SHA: $GITHUB_SHA"
 
 # 确保目录存在并切换到该目录
-echo "创建部署目录并切换..."
-mkdir -p "$DEPLOY_PATH"
+echo "创建部署目录并设置权限..."
+# 首先检查是否有sudo权限
+if command -v sudo > /dev/null && sudo -n true 2>/dev/null; then
+  echo "使用sudo创建和设置目录权限..."
+  sudo mkdir -p "$DEPLOY_PATH"
+  sudo chown -R "$USER":"$USER" "$DEPLOY_PATH"
+else
+  echo "直接创建目录..."
+  mkdir -p "$DEPLOY_PATH" || {
+    echo "错误: 无法创建部署目录 $DEPLOY_PATH，可能需要sudo权限"
+    exit 1
+  }
+fi
+
 cd "$DEPLOY_PATH" || {
   echo "错误: 无法切换到部署目录 $DEPLOY_PATH"
   exit 1
 }
 echo "当前工作目录: $(pwd)"
+echo "目录权限: $(ls -la | head -n 1)"
 
 # 克隆或更新代码仓库
 if [ -d .git ]; then
@@ -216,13 +229,14 @@ echo "3. 上传并执行部署脚本..."
 set +x  # 隐藏敏感信息
 scp deploy_script.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_script.sh
 ssh ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_script.sh && \
-  export DEPLOY_PATH='$DEPLOY_PATH'; \
-  export IMAGE_NAME='$IMAGE_NAME'; \
-  export IMAGE_TAG='$IMAGE_TAG'; \
-  export ENVIRONMENT='$ENVIRONMENT'; \
-  export GITHUB_REPO='$GITHUB_REPO'; \
-  export GITHUB_SHA='$GITHUB_SHA'; \
-  /tmp/deploy_script.sh"
+  export DEPLOY_PATH='$DEPLOY_PATH' && \
+  export IMAGE_NAME='$IMAGE_NAME' && \
+  export IMAGE_TAG='$IMAGE_TAG' && \
+  export ENVIRONMENT='$ENVIRONMENT' && \
+  export GITHUB_REPO='$GITHUB_REPO' && \
+  export GITHUB_SHA='$GITHUB_SHA' && \
+  echo '开始执行部署脚本...' && \
+  bash -x /tmp/deploy_script.sh"
 
 DEPLOY_EXIT_CODE=$?
 set -x
