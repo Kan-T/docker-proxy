@@ -1,5 +1,5 @@
-# 使用Ubuntu作为基础镜像，它有预编译的shadowsocks-libev包
-FROM ubuntu:22.04
+# 使用Alpine作为基础镜像，显著减小镜像大小并加速构建
+FROM alpine:3.18
 
 # 添加构建参数支持版本管理
 ARG IMAGE_VERSION=latest
@@ -7,35 +7,39 @@ LABEL maintainer="Docker Proxy Service <docker-proxy@example.com>"
 LABEL version="${IMAGE_VERSION}"
 LABEL build-date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-# 使用国内Ubuntu软件源加速构建
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+# 使用国内Alpine软件源加速构建
+RUN echo "http://mirrors.aliyun.com/alpine/v3.18/main/" > /etc/apk/repositories && \
+    echo "http://mirrors.aliyun.com/alpine/v3.18/community/" >> /etc/apk/repositories
 
-# 安装shadowsocks-libev和其他必要工具
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# 安装shadowsocks-libev和其他必要工具 - 精简安装包
+RUN apk update && \
+    apk add --no-cache \
         shadowsocks-libev \
         supervisor \
         curl \
         netcat-openbsd \
         jq \
-        procps \
-        && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+        procps
 
-# 创建必要的目录
+# 创建必要的目录 - Alpine中的目录结构略有不同
 RUN mkdir -p \
     /etc/shadowsocks \
     /var/log/supervisor \
     /var/log/shadowsocks \
-    /var/run/shadowsocks && \
+    /var/run/supervisor && \
     # 设置权限以防止未授权访问
     chmod 750 /etc/shadowsocks /var/log/shadowsocks
 
-# 复制配置文件模板 - 使用非root用户运行会更安全
+# 创建非root用户运行服务
+RUN addgroup -S shadowsocks && \
+    adduser -S -G shadowsocks -h /etc/shadowsocks -s /sbin/nologin shadowsocks && \
+    chown -R shadowsocks:shadowsocks /etc/shadowsocks /var/log/shadowsocks
+
+# 复制配置文件模板
 COPY config/shadowsocks.json.template /etc/shadowsocks/
-COPY config/supervisord.conf /etc/supervisor/conf.d/
+
+# 为Alpine修改supervisord配置路径
+COPY config/supervisord.conf /etc/supervisord.conf
 
 # 复制启动脚本
 COPY scripts/start.sh /usr/local/bin/
@@ -47,8 +51,7 @@ RUN chmod +x /usr/local/bin/start.sh && \
 COPY scripts/monitor.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/monitor.sh
 
-# 设置环境变量默认值 - 注意：敏感信息如密码不应在Dockerfile中硬编码
-# 生产环境必须通过环境变量或secrets提供PASSWORD等敏感信息
+# 设置环境变量默认值
 ENV SERVER_PORT=8388 \
     PASSWORD= \
     METHOD=aes-256-gcm \
@@ -62,15 +65,18 @@ ENV SERVER_PORT=8388 \
 # 暴露端口
 EXPOSE 8388/tcp 8388/udp ${METRICS_PORT}/tcp
 
-# 优化健康检查，减少外部依赖
+# 优化健康检查，使用Alpine兼容的命令
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD sh -c "nc -z 0.0.0.0 8388 && ss-server -c /etc/shadowsocks/shadowsocks.json -t 1 > /dev/null 2>&1"
+  CMD nc -z 0.0.0.0 8388
 
 # 设置工作目录
 WORKDIR /etc/shadowsocks
 
 # 添加卷定义
 VOLUME ["/var/log/shadowsocks", "/etc/shadowsocks"]
+
+# 切换到非root用户
+USER shadowsocks
 
 # 启动脚本 - 使用supervisor管理多个进程
 CMD ["/usr/local/bin/start.sh"]

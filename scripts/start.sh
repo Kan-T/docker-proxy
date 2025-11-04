@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Shadowsocks代理服务启动脚本 - 支持容器管理
 echo "正在启动Shadowsocks代理服务和监控系统..."
@@ -11,7 +11,7 @@ if [ -z "$PASSWORD" ]; then
   exit 1
 fi
 # 生产环境安全检查
-if [ "${ENVIRONMENT:-development}" == "production" ] && [ ${#PASSWORD} -lt 12 ]; then
+if [ "${ENVIRONMENT:-development}" = "production" ] && [ ${#PASSWORD} -lt 12 ]; then
   echo "警告: 生产环境密码长度应不少于12位"
 fi
 export PASSWORD
@@ -23,9 +23,9 @@ export LOG_LEVEL=${LOG_LEVEL:-warn}
 export INSTANCE_ID=${INSTANCE_ID:-1}
 export METRICS_PORT=${METRICS_PORT:-9090}
 
-# 创建必要的日志目录
-mkdir -p /var/log/shadowsocks /var/run/shadowsocks
-chmod 755 /var/log/shadowsocks /var/run/shadowsocks
+# 创建必要的日志目录 - Alpine兼容路径
+mkdir -p /var/log/shadowsocks /var/run/supervisor
+chmod 755 /var/log/shadowsocks /var/run/supervisor
 
 # 生成Shadowsocks配置文件
 echo "生成Shadowsocks配置文件..."
@@ -59,17 +59,17 @@ cat /etc/shadowsocks/shadowsocks.json | \
   mv /etc/shadowsocks/shadowsocks.json.tmp /etc/shadowsocks/shadowsocks.json && \
   chmod 600 /etc/shadowsocks/shadowsocks.json  # 限制配置文件权限
 
-# 生成Supervisor配置文件
+# 生成Supervisor配置文件 - 适用于Alpine
 echo "生成Supervisor配置文件..."
-cat > /etc/supervisor/conf.d/shadowsocks.conf << EOF
+cat > /etc/supervisord.conf << EOF
 [supervisord]
 nodaemon=true
 logfile=/var/log/supervisor/supervisord.log
-pidfile=/var/run/supervisord.pid
+pidfile=/var/run/supervisor/supervisord.pid
 
 [program:shadowsocks]
 command=ss-server -c /etc/shadowsocks/shadowsocks.json -v
-user=root
+user=shadowsocks
 autostart=true
 autorestart=true
 startsecs=10
@@ -91,7 +91,7 @@ environment=
 
 [program:monitor]
 command=/usr/local/bin/monitor.sh
-user=root
+user=shadowsocks
 autostart=true
 autorestart=true
 startsecs=5
@@ -135,4 +135,4 @@ fi
 # 启动Supervisor，管理所有进程
 echo "启动Supervisor进程管理器..."
 echo "服务将通过Supervisor管理，支持自动重启和日志轮转"
-supervisord -c /etc/supervisor/conf.d/shadowsocks.conf
+supervisord -c /etc/supervisord.conf
