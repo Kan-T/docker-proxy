@@ -41,13 +41,19 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
       
-      - name: 设置阿里云CLI
-        uses: zhikiri/setup-aliyun-cli@v1
-        with:
-          access-key-id: ${{ secrets.ALI_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.ALI_ACCESS_KEY_SECRET }}
-          region-id: ${{ secrets.ALI_REGION }}
-        # 确保敏感信息不会在日志中显示
+      - name: 手动安装和配置阿里云CLI
+        run: |
+          # 下载并安装阿里云CLI
+          curl -fsSL https://mirrors.aliyun.com/aliyun-cli/install.sh | bash
+          # 将CLI添加到PATH
+          export PATH=$HOME/.aliyun:$PATH
+          # 配置阿里云CLI，使用set +x避免敏感信息显示在日志中
+          set +x
+          aliyun configure set \
+            --access-key-id ${{ secrets.ALI_ACCESS_KEY_ID }} \
+            --access-key-secret ${{ secrets.ALI_ACCESS_KEY_SECRET }} \
+            --region ${{ secrets.ALI_REGION }} \
+            --output json
       
       - name: 设置权限
         run: |
