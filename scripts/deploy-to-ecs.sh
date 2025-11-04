@@ -207,12 +207,12 @@ echo "3. 上传并执行部署脚本..."
 set +x  # 隐藏敏感信息
 scp deploy_script.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_script.sh
 ssh ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_script.sh && \
-  export DEPLOY_PATH='$DEPLOY_PATH' \
-  export IMAGE_NAME='$IMAGE_NAME' \
-  export IMAGE_TAG='$IMAGE_TAG' \
-  export ENVIRONMENT='$ENVIRONMENT' \
-  export GITHUB_REPO='$GITHUB_REPO' \
-  export GITHUB_SHA='$GITHUB_SHA' \
+  export DEPLOY_PATH='$DEPLOY_PATH'; \
+  export IMAGE_NAME='$IMAGE_NAME'; \
+  export IMAGE_TAG='$IMAGE_TAG'; \
+  export ENVIRONMENT='$ENVIRONMENT'; \
+  export GITHUB_REPO='$GITHUB_REPO'; \
+  export GITHUB_SHA='$GITHUB_SHA'; \
   /tmp/deploy_script.sh"
 
 DEPLOY_EXIT_CODE=$?
