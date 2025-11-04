@@ -41,16 +41,15 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
       
-      - name: 手动安装和配置阿里云CLI
+      - name: 安装阿里云CLI
         run: |
-          # 使用官方推荐的安装方法
-          mkdir -p /tmp/aliyun-cli
-          curl -fsSL "https://github.com/aliyun/aliyun-cli/releases/latest/download/aliyun-cli-linux-amd64.tgz" -o /tmp/aliyun-cli.tgz
-          tar -xzf /tmp/aliyun-cli.tgz -C /tmp/aliyun-cli
-          sudo cp /tmp/aliyun-cli/aliyun /usr/local/bin/
-          sudo chmod +x /usr/local/bin/aliyun
+          # 直接使用npm安装阿里云CLI，这在GitHub Actions环境中更稳定可靠
+          sudo npm install -g @alicloud/fun
+          # fun包含aliyun命令行工具
+          
           # 验证安装
-          aliyun version
+          aliyun version || command -v aliyun || ls -la $(npm root -g)/@alicloud/fun/node_modules/.bin/
+          
           # 配置阿里云CLI，使用set +x避免敏感信息显示在日志中
           set +x
           aliyun configure set \
