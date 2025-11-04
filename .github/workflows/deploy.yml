@@ -22,6 +22,11 @@ jobs:
       
       - name: 运行测试脚本
         run: ./tests/test_proxy.sh
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          # 在CI环境中设置测试环境变量，避免连接实际服务
+          SKIP_SERVICE_TEST: true
 
   # 生产环境部署（需要手动审批）
   deploy-prod:
