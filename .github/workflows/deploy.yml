@@ -52,7 +52,7 @@ jobs:
       
       - name: 设置权限
         run: |
-          chmod +x scripts/deploy-to-ecs.sh
+          chmod +x scripts/deploy-to-ecs-simple.sh
           # 添加环境变量并掩码敏感信息
           echo "IMAGE_TAG=$(echo $GITHUB_SHA | cut -c 1-7)" >> $GITHUB_ENV
           echo "::add-mask::$(echo $GITHUB_SHA | cut -c 1-7)"
@@ -60,13 +60,14 @@ jobs:
       
       - name: 部署到ECS
         run: |
-          # 执行部署脚本，使用set +x避免命令参数在日志中显示
+          # 执行简化版部署脚本，使用set +x避免命令参数在日志中显示
           set +x
           export GITHUB_REPOSITORY=${{ github.repository }}
           export GITHUB_SHA=${{ github.sha }}
           export ECS_HOST=${{ vars.ECS_HOST }}
-          export ECS_USER=${{ vars.ECS_USER || 'root' }}
-          ./scripts/deploy-to-ecs.sh -e prod
+          export ECS_USER=${{ vars.ECS_USER || 'deploy' }}  # 使用deploy用户，需要正确设置权限
+          export IMAGE_TAG=${{ env.IMAGE_TAG }}  # 传递CI环境中的镜像标签
+          ./scripts/deploy-to-ecs-simple.sh -e prod
 
   # 部署通知
   notify:
@@ -80,14 +81,23 @@ jobs:
           if [ "${{ needs.deploy-prod.result }}" == "success" ]; then
             echo "部署状态: 成功"
             STATUS="成功"
+            STATUS_EMOJI="✅"
           else
             echo "部署状态: 失败"
             STATUS="失败"
+            STATUS_EMOJI="❌"
           fi
           echo "STATUS=$STATUS" >> $GITHUB_ENV
+          echo "STATUS_EMOJI=$STATUS_EMOJI" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$(echo $GITHUB_SHA | cut -c 1-7)" >> $GITHUB_ENV
 
       - name: 发送通知
         run: |
-          echo "部署 ${{ env.STATUS }}"
+          echo "$STATUS_EMOJI 部署 $STATUS"
+          echo "📦 镜像标签: $IMAGE_TAG"
+          echo "🌐 环境: production"
+          echo "🏗️  提交: ${{ github.sha }}"
+          echo "👤 提交者: ${{ github.actor }}"
           # 这里可以添加实际的通知逻辑
           # 例如发送邮件、Slack消息等
+          # 示例: curl -X POST -H "Content-type: application/json" --data "{\"text\":\"$STATUS_EMOJI 部署 $STATUS - 镜像标签: $IMAGE_TAG\"}" ${{ secrets.SLACK_WEBHOOK }}

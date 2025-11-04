@@ -262,26 +262,43 @@ else
   fi
 fi
 
-# 如果使用了临时目录，需要复制文件到目标目录
+# 如果使用了临时目录，修改部署策略
 if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
-  echo "将文件从临时目录复制到目标目录..."
-  if command -v sudo > /dev/null; then
-    sudo -S cp -r * "$DEPLOY_PATH/"
-    sudo -S chown -R "$USER":"$USER" "$DEPLOY_PATH"
-    sudo -S chmod -R 775 "$DEPLOY_PATH"
-    # 切换回目标部署目录
-    cd "$DEPLOY_PATH"
-  else
-    echo "警告: 无法将临时目录内容复制到目标目录，因为没有sudo权限"
-    echo "将直接在临时目录中构建部署"
-  fi
+  echo "在临时目录部署模式下，直接在当前目录构建运行..."
+  echo "注意：由于权限限制，将直接在临时目录 $PWD 中部署，而不是目标目录 $DEPLOY_PATH"
+  
+  # 更新docker-compose配置，确保端口映射正确
+  sed -i 's|./config:/etc/shadowsocks|'"$PWD"'/config:/etc/shadowsocks|g' docker-compose.yml
+  
+  echo "已调整配置，将在临时目录中直接部署..."
 fi
 
 # 再次确认当前工作目录
 echo "最终工作目录: $(pwd)"
 
 # 创建或更新docker-compose.yml文件
-cat > docker-compose.yml << COMPOSEEOF
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  # 在临时目录模式下，创建docker-compose.yml并使用绝对路径
+  echo "在临时目录模式下创建docker-compose.yml，使用绝对路径..."
+  cat > docker-compose.yml << COMPOSEEOF
+version: '3.8'
+
+services:
+  docker-proxy:
+    build: .
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: docker-proxy-${ENVIRONMENT}
+    restart: always
+    ports:
+      - "8388:8388"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}
+    volumes:
+      - ${PWD}/config:/etc/shadowsocks
+COMPOSEEOF
+else
+  # 正常模式下使用相对路径
+  cat > docker-compose.yml << COMPOSEEOF
 version: '3.8'
 
 services:
@@ -297,67 +314,104 @@ services:
     volumes:
       - ./config:/etc/shadowsocks
 COMPOSEEOF
+fi
 
 mkdir -p config
 
-# 处理Docker Compose操作，添加sudo支持
+# 处理Docker Compose操作，在临时部署模式下避免使用sudo
 echo "停止旧容器..."
-if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
-  sudo -S docker-compose down -v || {
-    echo "sudo docker-compose down失败，尝试直接停止..."
-    docker-compose down -v || true
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  # 临时部署模式：直接使用docker-compose，不尝试sudo
+  echo "临时部署模式：直接执行docker-compose down..."
+  docker-compose down -v || {
+    echo "警告: 无法停止旧容器，但继续部署..."
   }
 else
-  docker-compose down -v || true
+  # 正常模式：尝试sudo
+  if command -v sudo > /dev/null; then
+    sudo -S docker-compose down -v || {
+      echo "sudo docker-compose down失败，尝试直接停止..."
+      docker-compose down -v || true
+    }
+  else
+    docker-compose down -v || true
+  fi
 fi
 
 echo "构建Docker镜像..."
-if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
-  sudo -S docker-compose build || {
-    echo "sudo docker-compose build失败，尝试直接构建..."
-    docker-compose build
-  }
-else
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  # 临时部署模式：直接使用docker-compose
+  echo "临时部署模式：直接执行docker-compose build..."
   docker-compose build
+else
+  # 正常模式：尝试sudo
+  if command -v sudo > /dev/null; then
+    sudo -S docker-compose build || {
+      echo "sudo docker-compose build失败，尝试直接构建..."
+      docker-compose build
+    }
+  else
+    docker-compose build
+  fi
 fi
 
 echo "启动容器..."
-if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
-  sudo -S docker-compose up -d || {
-    echo "sudo docker-compose up失败，尝试直接启动..."
-    docker-compose up -d
-  }
-else
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  # 临时部署模式：直接使用docker-compose
+  echo "临时部署模式：直接执行docker-compose up -d..."
   docker-compose up -d
+else
+  # 正常模式：尝试sudo
+  if command -v sudo > /dev/null; then
+    sudo -S docker-compose up -d || {
+      echo "sudo docker-compose up失败，尝试直接启动..."
+      docker-compose up -d
+    }
+  else
+    docker-compose up -d
+  fi
 fi
 
 sleep 5
 
 # 检查服务状态
 echo "检查服务状态..."
-if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
-  if sudo -S docker-compose ps | grep "Up" || docker-compose ps | grep "Up"; then
-    echo "服务部署成功并正在运行"
-    exit 0
-  else
-    echo "服务部署失败或未正常启动"
-    echo "查看容器日志获取更多信息..."
-    if command -v sudo > /dev/null; then
-      sudo -S docker-compose logs --tail 50
-    else
-      docker-compose logs --tail 50
-    fi
-    exit 1
-  fi
-else
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  # 临时部署模式：直接使用docker-compose
+  echo "临时部署模式：检查容器状态..."
+  docker-compose ps
   if docker-compose ps | grep "Up"; then
-    echo "服务部署成功并正在运行"
+    echo "服务在临时目录部署成功并正在运行"
+    echo "注意：服务运行在临时目录 $PWD，而非原始目标目录"
     exit 0
   else
     echo "服务部署失败或未正常启动"
     echo "查看容器日志获取更多信息..."
     docker-compose logs --tail 50
     exit 1
+  fi
+else
+  # 正常模式：尝试sudo
+  if command -v sudo > /dev/null; then
+    if sudo -S docker-compose ps | grep "Up" || docker-compose ps | grep "Up"; then
+      echo "服务部署成功并正在运行"
+      exit 0
+    else
+      echo "服务部署失败或未正常启动"
+      echo "查看容器日志获取更多信息..."
+      sudo -S docker-compose logs --tail 50 || docker-compose logs --tail 50
+      exit 1
+    fi
+  else
+    if docker-compose ps | grep "Up"; then
+      echo "服务部署成功并正在运行"
+      exit 0
+    else
+      echo "服务部署失败或未正常启动"
+      echo "查看容器日志获取更多信息..."
+      docker-compose logs --tail 50
+      exit 1
+    fi
   fi
 fi
 DEPLOYEOF
@@ -447,7 +501,18 @@ ls -la "$DEPLOY_PATH" 2>/dev/null || echo '目录为空或不存在'
 # 执行部署脚本
 echo '=== 开始执行部署脚本 ==='
 chmod +x /tmp/deploy_script.sh
+
+# 直接执行部署脚本，不使用sudo，确保在临时部署模式下正常工作
+echo "直接执行部署脚本，避免sudo权限问题..."
 bash -x /tmp/deploy_script.sh
+
+# 捕获部署脚本执行结果
+DEPLOY_RESULT=$?
+
+echo "部署脚本执行完成，退出码: $DEPLOY_RESULT"
+
+# 根据退出码决定返回值
+exit $DEPLOY_RESULT
 DEPLOYEOF
 
 # 上传并执行部署辅助脚本
