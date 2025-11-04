@@ -266,34 +266,48 @@ chmod +x deploy_script.sh
 echo "3. 上传并执行部署脚本..."
 set +x  # 隐藏敏感信息
 scp deploy_script.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_script.sh
-ssh ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_script.sh && \
-  echo '=== 系统信息 ===' && \
-  whoami && \
-  id && \
-  echo '=== 环境变量 ===' && \
-  export DEPLOY_PATH='$DEPLOY_PATH' && \
-  export IMAGE_NAME='$IMAGE_NAME' && \
-  export IMAGE_TAG='$IMAGE_TAG' && \
-  export ENVIRONMENT='$ENVIRONMENT' && \
-  export GITHUB_REPO='$GITHUB_REPO' && \
-  export GITHUB_SHA='$GITHUB_SHA' && \
-  echo 'DEPLOY_PATH: $DEPLOY_PATH' && \
-  echo '=== 目录准备 ===' && \
-  # 先检查并创建父目录结构
-  mkdir -p '$(dirname "$DEPLOY_PATH")' && \
-  echo '父目录权限:' && \
-  ls -la '$(dirname "$DEPLOY_PATH")' && \
-  # 确保目录存在且有正确权限
-  if [ ! -d '$DEPLOY_PATH' ]; then \
-    echo '创建部署目录...' && \
-    mkdir -p '$DEPLOY_PATH' && \
-    echo '设置部署目录权限...' && \
-    chmod -R 755 '$DEPLOY_PATH' && \
-  fi && \
-  echo '=== 部署目录状态 ===' && \
-  ls -la '$DEPLOY_PATH' 2>/dev/null || echo '目录为空或不存在' && \
-  echo '=== 开始执行部署脚本 ===' && \
-  bash -x /tmp/deploy_script.sh"
+# 使用更简单直接的方式执行部署
+cat > deploy_temp.sh << DEPLOYEOF
+#!/bin/bash
+set -x
+
+# 显示系统信息
+echo '=== 系统信息 ==='
+whoami
+id
+
+# 设置环境变量
+export DEPLOY_PATH="$DEPLOY_PATH"
+export IMAGE_NAME="$IMAGE_NAME"
+export IMAGE_TAG="$IMAGE_TAG"
+export ENVIRONMENT="$ENVIRONMENT"
+export GITHUB_REPO="$GITHUB_REPO"
+export GITHUB_SHA="$GITHUB_SHA"
+
+echo '=== 环境变量 ==='
+echo 'DEPLOY_PATH: $DEPLOY_PATH'
+
+# 准备目录
+echo '=== 目录准备 ==='
+mkdir -p "$DEPLOY_PATH"
+echo '父目录权限:'
+ls -la "$(dirname "$DEPLOY_PATH")"
+
+echo '设置部署目录权限...'
+chmod -R 775 "$DEPLOY_PATH"
+
+echo '=== 部署目录状态 ==='
+ls -la "$DEPLOY_PATH" 2>/dev/null || echo '目录为空或不存在'
+
+# 执行部署脚本
+echo '=== 开始执行部署脚本 ==='
+chmod +x /tmp/deploy_script.sh
+bash -x /tmp/deploy_script.sh
+DEPLOYEOF
+
+# 上传并执行部署辅助脚本
+scp deploy_temp.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_wrapper.sh
+ssh ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_wrapper.sh && bash /tmp/deploy_wrapper.sh"
 
 DEPLOY_EXIT_CODE=$?
 set -x
