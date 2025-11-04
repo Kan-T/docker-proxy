@@ -7,9 +7,9 @@ LABEL maintainer="Docker Proxy Service <docker-proxy@example.com>"
 LABEL version="${IMAGE_VERSION}"
 LABEL build-date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-# 使用国内Alpine软件源加速构建
-RUN echo "http://mirrors.aliyun.com/alpine/v3.18/main/" > /etc/apk/repositories && \
-    echo "http://mirrors.aliyun.com/alpine/v3.18/community/" >> /etc/apk/repositories
+# 使用Alpine官方源，适用于美国区域的ECS服务器
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/main/" > /etc/apk/repositories && \
+    echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/community/" >> /etc/apk/repositories
 
 # 安装shadowsocks-libev和其他必要工具 - 精简安装包
 RUN apk update && \

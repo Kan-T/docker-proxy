@@ -145,11 +145,11 @@ chmod +x deploy_simple.sh
 echo "上传部署脚本到ECS实例..."
 scp deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh
 
-# 执行部署脚本 - 添加详细日志输出用于CI环境
+# 执行部署脚本 - 避免显示命令参数
 echo "执行部署脚本到远程服务器..."
 # 使用-v参数启用SSH详细输出，有助于调试连接问题
 # 临时保存ssh输出到变量，然后过滤输出但保留退出码
-SSH_OUTPUT=$(ssh -v ${ECS_USER}@${ECS_HOST} "set -x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1)
+SSH_OUTPUT=$(ssh -v ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1)
 DEPLOY_EXIT_CODE=$?
 
 # 打印过滤后的输出（排除identity file信息）
