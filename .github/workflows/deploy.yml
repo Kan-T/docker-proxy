@@ -43,10 +43,14 @@ jobs:
       
       - name: 手动安装和配置阿里云CLI
         run: |
-          # 下载并安装阿里云CLI
-          curl -fsSL https://mirrors.aliyun.com/aliyun-cli/install.sh | bash
-          # 将CLI添加到PATH
-          export PATH=$HOME/.aliyun:$PATH
+          # 使用官方推荐的安装方法
+          mkdir -p /tmp/aliyun-cli
+          curl -fsSL "https://github.com/aliyun/aliyun-cli/releases/latest/download/aliyun-cli-linux-amd64.tgz" -o /tmp/aliyun-cli.tgz
+          tar -xzf /tmp/aliyun-cli.tgz -C /tmp/aliyun-cli
+          sudo cp /tmp/aliyun-cli/aliyun /usr/local/bin/
+          sudo chmod +x /usr/local/bin/aliyun
+          # 验证安装
+          aliyun version
           # 配置阿里云CLI，使用set +x避免敏感信息显示在日志中
           set +x
           aliyun configure set \
