@@ -41,22 +41,14 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
       
-      - name: 安装阿里云CLI
+      - name: 设置SSH密钥
         run: |
-          # 直接使用npm安装阿里云CLI，这在GitHub Actions环境中更稳定可靠
-          sudo npm install -g @alicloud/fun
-          # fun包含aliyun命令行工具
-          
-          # 验证安装
-          aliyun version || command -v aliyun || ls -la $(npm root -g)/@alicloud/fun/node_modules/.bin/
-          
-          # 配置阿里云CLI，使用set +x避免敏感信息显示在日志中
-          set +x
-          aliyun configure set \
-            --access-key-id ${{ secrets.ALI_ACCESS_KEY_ID }} \
-            --access-key-secret ${{ secrets.ALI_ACCESS_KEY_SECRET }} \
-            --region ${{ secrets.ALI_REGION }} \
-            --output json
+          # 配置SSH连接
+          mkdir -p ~/.ssh
+          echo "${{ secrets.ECS_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          # 添加ECS主机到known_hosts以避免交互式提示
+          ssh-keyscan -H ${{ vars.ECS_HOST }} >> ~/.ssh/known_hosts || echo "Warning: Failed to add host to known_hosts"
       
       - name: 设置权限
         run: |
@@ -66,13 +58,15 @@ jobs:
           echo "::add-mask::$(echo $GITHUB_SHA | cut -c 1-7)"
           echo "::add-mask::${{ github.sha }}"
       
-      - name: 部署到阿里云
+      - name: 部署到ECS
         run: |
           # 执行部署脚本，使用set +x避免命令参数在日志中显示
           set +x
           export GITHUB_REPOSITORY=${{ github.repository }}
           export GITHUB_SHA=${{ github.sha }}
-          ./scripts/deploy-to-ecs.sh -e prod -r ${{ secrets.ALI_REGION }}
+          export ECS_HOST=${{ vars.ECS_HOST }}
+          export ECS_USER=${{ vars.ECS_USER || 'root' }}
+          ./scripts/deploy-to-ecs.sh -e prod
 
   # 部署通知
   notify:
