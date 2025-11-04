@@ -59,33 +59,33 @@ GITHUB_REPO="$5"
 GITHUB_SHA="$6"
 
 # 显示基本信息
-echo "=== 部署信息 ==="
-echo "当前用户: $(whoami)"
-echo "部署路径: $DEPLOY_PATH"
-echo ""
+echo "=== 部署信息 ===" 1>&2
+echo "当前用户: $(whoami)" 1>&2
+echo "部署路径: $DEPLOY_PATH" 1>&2
+echo "" 1>&2
 
 # 1. 创建部署目录
-echo "1. 创建部署目录..."
+echo "1. 创建部署目录..." 1>&2
 mkdir -p "$DEPLOY_PATH"
-cd "$DEPLOY_PATH" || { echo "无法进入目录 $DEPLOY_PATH"; exit 1; }
+cd "$DEPLOY_PATH" || { echo "无法进入目录 $DEPLOY_PATH" 1>&2; exit 1; }
 
 # 2. 克隆或更新代码
-echo "2. 更新代码仓库..."# 克隆或更新代码仓库 - 幂等操作，支持反复执行
+echo "2. 更新代码仓库..." 1>&2 # 克隆或更新代码仓库 - 幂等操作，支持反复执行
 if [ -d ".git" ]; then
-  echo "更新现有代码仓库..."
+  echo "更新现有代码仓库..." 1>&2
   # 先清理未跟踪文件，确保工作区干净
-  git clean -fdx || echo "清理未跟踪文件失败，但继续..."
+  git clean -fdx || echo "清理未跟踪文件失败，但继续..." 1>&2
   git fetch origin --prune
   git reset --hard "$GITHUB_SHA"
   git checkout -f "$GITHUB_SHA" # 确保切换到正确的提交
 else
-  echo "克隆新的代码仓库..."
+  echo "克隆新的代码仓库..." 1>&2
   git clone "$GITHUB_REPO" .
   git checkout "$GITHUB_SHA"
 fi
 
 # 3. 创建docker-compose配置
-echo "3. 创建docker-compose配置..."
+echo "3. 创建docker-compose配置..." 1>&2
 cat > docker-compose.yml << COMPOSEEOF
 version: '3.8'
 
@@ -108,64 +108,71 @@ COMPOSEEOF
 mkdir -p config
 
 # 4. 检查Docker服务状态
-echo "4. 检查Docker服务状态..."
+echo "4. 检查Docker服务状态..." 1>&2
 if ! docker info > /dev/null 2>&1; then
-  echo "⚠️ Docker服务可能未运行，尝试重启Docker服务..."
+  echo "⚠️ Docker服务可能未运行，尝试重启Docker服务..." 1>&2
   # 尝试重启Docker服务（不同系统有不同的重启命令）
-  sudo systemctl restart docker || sudo service docker restart || echo "无法重启Docker服务，请手动检查"
+  sudo systemctl restart docker || sudo service docker restart || echo "无法重启Docker服务，请手动检查" 1>&2
   # 等待Docker服务恢复
   sleep 10
   # 再次检查
   if ! docker info > /dev/null 2>&1; then
-    echo "❌ Docker服务仍未正常运行，请手动检查Docker服务状态"
+    echo "❌ Docker服务仍未正常运行，请手动检查Docker服务状态" 1>&2
     exit 1
   fi
-  echo "✅ Docker服务已恢复"
+  echo "✅ Docker服务已恢复" 1>&2
 fi
 
+# 4.1 清理Docker构建缓存，解决可能的构建问题
+echo "4.1 清理Docker构建缓存..." 1>&2
+sudo docker builder prune -f 2>/dev/null || echo "清理构建缓存失败，但继续..." 1>&2
+
 # 5. 停止旧容器 - 支持反复执行，即使容器不存在也不会失败
-echo "5. 停止旧容器..."
+echo "5. 停止旧容器..." 1>&2
 docker-compose down -v --remove-orphans || true
 
 # 清理可能存在的悬空镜像（可选，但有助于保持环境清洁）
-echo "清理悬空镜像..."
+echo "清理悬空镜像..." 1>&2
 docker image prune -f 2>/dev/null || true
 
 # 6. 构建新镜像（添加详细错误处理）
-echo "6. 构建Docker镜像..."
+echo "6. 构建Docker镜像..." 1>&2
 # 捕获构建输出并检查错误
 BUILD_OUTPUT=$(docker-compose build 2>&1 || echo "BUILD_FAILED")
 if echo "$BUILD_OUTPUT" | grep -q "BUILD_FAILED"; then
-  echo "❌ Docker构建失败!"
-  echo "错误详情:"
+  echo "❌ Docker构建失败!" 1>&2
+  echo "错误详情:" 1>&2
   # 显示关键错误信息
-  echo "$BUILD_OUTPUT" | grep -E "ERROR|failed|not found|permission denied" || echo "$BUILD_OUTPUT"
+  echo "$BUILD_OUTPUT" | grep -E "ERROR|failed|not found|permission denied" || echo "$BUILD_OUTPUT" 1>&2
   # 针对特定错误提供建议
   if echo "$BUILD_OUTPUT" | grep -q "forwarding Ping: no such job"; then
-    echo "建议: 这可能是Docker守护进程问题，请尝试手动重启Docker服务并清理构建缓存"
-    echo "命令: sudo systemctl restart docker && docker builder prune -f"
+    echo "建议: 这可能是Docker守护进程问题，请尝试手动重启Docker服务并清理构建缓存" 1>&2
+    echo "命令: sudo systemctl restart docker && docker builder prune -f" 1>&2
   fi
   exit 1
 fi
-echo "✅ Docker镜像构建成功"
+echo "✅ Docker镜像构建成功" 1>&2
 
 # 7. 启动新容器
-echo "7. 启动新容器..."
+echo "7. 启动新容器..." 1>&2
 docker-compose up -d
 
 # 8. 检查部署状态
-echo "8. 检查部署状态..."
+echo "8. 检查部署状态..." 1>&2
 sleep 5
 docker ps -a | grep docker-proxy
 
-echo ""
+echo "" 1>&2
 if docker-compose ps | grep "Up"; then
-  echo "✅ 部署成功! 服务正在运行"
-  echo "访问地址: http://$(hostname -I | awk '{print $1}'):8388"
+  echo "✅ 部署成功! 服务正在运行" 1>&2
+  echo "访问地址: http://$(hostname -I | awk '{print $1}'):8388" 1>&2
   exit 0
 else
-  echo "❌ 部署失败! 服务未正常启动"
-  echo "查看日志: docker-compose logs --tail 100"
+  echo "❌ 部署失败! 服务未正常启动" 1>&2
+  echo "查看日志: docker-compose logs --tail 100" 1>&2
+  # 显示部分日志以帮助诊断
+  echo "关键日志信息:" 1>&2
+  docker-compose logs --tail 50 | grep -E "error|fail|warn" 1>&2 || echo "无明显错误日志" 1>&2
   exit 1
 fi
 DEPLOYEOF
