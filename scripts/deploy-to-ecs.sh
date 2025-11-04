@@ -155,25 +155,63 @@ echo "- GITHUB_SHA: $GITHUB_SHA"
 
 # 确保目录存在并切换到该目录
 echo "创建部署目录并设置权限..."
-# 首先检查是否有sudo权限
-if command -v sudo > /dev/null && sudo -n true 2>/dev/null; then
-  echo "使用sudo创建和设置目录权限..."
-  sudo mkdir -p "$DEPLOY_PATH"
-  sudo chown -R "$USER":"$USER" "$DEPLOY_PATH"
+
+# 获取当前用户信息
+echo "当前用户: $USER (UID: $(id -u))"
+
+# 确保父目录存在
+PARENT_DIR=$(dirname "$DEPLOY_PATH")
+echo "确保父目录存在: $PARENT_DIR"
+mkdir -p "$PARENT_DIR"
+
+# 先检查目录是否存在
+if [ -d "$DEPLOY_PATH" ]; then
+  echo "目录已存在: $DEPLOY_PATH"
+  # 检查并显示当前权限
+  echo "当前目录权限:"
+  ls -la "$(dirname "$DEPLOY_PATH")" | grep "$(basename "$DEPLOY_PATH")"
+  
+  # 如果有权限问题，尝试重新设置权限
+  if [ ! -w "$DEPLOY_PATH" ]; then
+    echo "目录无写入权限，尝试修复..."
+    if command -v sudo > /dev/null && sudo -n true 2>/dev/null; then
+      sudo chown -R "$USER":"$USER" "$DEPLOY_PATH"
+      sudo chmod -R u+rw "$DEPLOY_PATH"
+    else
+      echo "警告: 无sudo权限，无法修复权限"
+    fi
+  fi
 else
-  echo "直接创建目录..."
-  mkdir -p "$DEPLOY_PATH" || {
-    echo "错误: 无法创建部署目录 $DEPLOY_PATH，可能需要sudo权限"
-    exit 1
-  }
+  # 目录不存在，创建它
+  echo "创建新目录: $DEPLOY_PATH"
+  if command -v sudo > /dev/null && sudo -n true 2>/dev/null; then
+    echo "使用sudo创建目录..."
+    sudo mkdir -p "$DEPLOY_PATH"
+    sudo chown -R "$USER":"$USER" "$DEPLOY_PATH"
+    sudo chmod -R u+rw "$DEPLOY_PATH"
+  else
+    echo "直接创建目录..."
+    mkdir -p "$DEPLOY_PATH" || {
+      echo "错误: 无法创建部署目录 $DEPLOY_PATH，可能需要sudo权限"
+      exit 1
+    }
+    chmod -R u+rw "$DEPLOY_PATH"
+  fi
 fi
 
+# 再次检查权限
+echo "更新后的目录权限:"
+ls -la "$(dirname "$DEPLOY_PATH")" | grep "$(basename "$DEPLOY_PATH")"
+
+# 尝试切换目录
 cd "$DEPLOY_PATH" || {
   echo "错误: 无法切换到部署目录 $DEPLOY_PATH"
   exit 1
 }
+
 echo "当前工作目录: $(pwd)"
-echo "目录权限: $(ls -la | head -n 1)"
+echo "目录内容:"
+ls -la
 
 # 克隆或更新代码仓库
 if [ -d .git ]; then
@@ -229,13 +267,32 @@ echo "3. 上传并执行部署脚本..."
 set +x  # 隐藏敏感信息
 scp deploy_script.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_script.sh
 ssh ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_script.sh && \
+  echo '=== 系统信息 ===' && \
+  whoami && \
+  id && \
+  echo '=== 环境变量 ===' && \
   export DEPLOY_PATH='$DEPLOY_PATH' && \
   export IMAGE_NAME='$IMAGE_NAME' && \
   export IMAGE_TAG='$IMAGE_TAG' && \
   export ENVIRONMENT='$ENVIRONMENT' && \
   export GITHUB_REPO='$GITHUB_REPO' && \
   export GITHUB_SHA='$GITHUB_SHA' && \
-  echo '开始执行部署脚本...' && \
+  echo 'DEPLOY_PATH: $DEPLOY_PATH' && \
+  echo '=== 目录准备 ===' && \
+  # 先检查并创建父目录结构
+  mkdir -p '$(dirname "$DEPLOY_PATH")' && \
+  echo '父目录权限:' && \
+  ls -la '$(dirname "$DEPLOY_PATH")' && \
+  # 确保目录存在且有正确权限
+  if [ ! -d '$DEPLOY_PATH' ]; then \
+    echo '创建部署目录...' && \
+    mkdir -p '$DEPLOY_PATH' && \
+    echo '设置部署目录权限...' && \
+    chmod -R 755 '$DEPLOY_PATH' && \
+  fi && \
+  echo '=== 部署目录状态 ===' && \
+  ls -la '$DEPLOY_PATH' 2>/dev/null || echo '目录为空或不存在' && \
+  echo '=== 开始执行部署脚本 ===' && \
   bash -x /tmp/deploy_script.sh"
 
 DEPLOY_EXIT_CODE=$?
