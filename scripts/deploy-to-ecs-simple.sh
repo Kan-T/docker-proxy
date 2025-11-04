@@ -143,44 +143,63 @@ chmod +x deploy_simple.sh
 
 # 上传并执行部署脚本
 echo "上传部署脚本到ECS实例..."
-# 添加详细的连接信息和错误处理
-# 使用-q参数禁止显示传输进度，但保留-v用于错误诊断
-SCP_OUTPUT=$(scp -q -v deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh 2>&1)
-SCP_EXIT_CODE=$?
+# 移除-q参数，确保错误信息在CI环境中显示
+scp -v deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh 2>&1 | tee scp_output.log
+SCP_EXIT_CODE=${PIPESTATUS[0]}
 
-# 过滤掉敏感信息
-FILTERED_OUTPUT=$(echo "$SCP_OUTPUT" | grep -v "identity file")
-
-# 显示关键错误信息
+# 立即检查SCP退出码，确保错误被捕获
 if [ $SCP_EXIT_CODE -ne 0 ]; then
+  echo "##[error] 部署失败: SCP上传脚本失败"
   echo "错误: SCP上传失败，退出码: $SCP_EXIT_CODE"
   echo "连接信息: ${ECS_USER}@${ECS_HOST}"
-  # 只显示关键错误信息，避免输出敏感信息
-  echo "错误详情:"
-  echo "$FILTERED_OUTPUT" | grep -E "permission denied|connection refused|no route to host|invalid key|timeout" || true
-  # 增加更具体的故障排除建议
+  echo "错误详情:" 
+  grep -E "permission denied|connection refused|no route to host|invalid key|timeout|failed|error" scp_output.log || echo "无法从日志中提取具体错误信息"
   echo "故障排除建议:"
-  echo "1. 检查SSH密钥配置"
-  echo "2. 确认ECS_HOST和ECS_USER环境变量设置正确"
+  echo "1. 检查SSH密钥配置是否正确"
+  echo "2. 确认ECS_HOST和ECS_USER环境变量设置是否正确"
   echo "3. 验证网络连接和防火墙设置"
   echo "4. 确认目标服务器上deploy用户有/tmp目录的写入权限"
+  # 在CI环境中设置错误状态
+  if [ -n "$GITHUB_ACTIONS" ]; then
+    echo "DEPLOY_STATUS=failure" >> $GITHUB_ENV
+  fi
   exit 1
 fi
+# 清理日志文件
+rm -f scp_output.log
 
 # 执行部署脚本 - 避免显示命令参数
 echo "执行部署脚本到远程服务器..."
-# 使用-v参数启用SSH详细输出，有助于调试连接问题
 # 添加更安全的SSH选项和详细错误处理
 SSH_OPTIONS="-v -o StrictHostKeyChecking=no -o ConnectTimeout=30"
-# 临时保存ssh输出到变量，然后过滤输出但保留退出码
-SSH_OUTPUT=$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1)
-DEPLOY_EXIT_CODE=$?
 
-# 过滤SSH输出中的敏感信息
-FILTERED_SSH_OUTPUT=$(echo "$SSH_OUTPUT" | grep -v -E "identity file|debug1: Reading configuration data|debug1: auto-mux: Trying existing master" || true)
+# 使用tee命令确保输出同时显示在控制台和日志文件中
+ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1 | tee ssh_output.log
+DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
 
-# 打印过滤后的SSH输出
-echo "$FILTERED_SSH_OUTPUT"
+# 过滤SSH输出中的敏感信息，但保留错误信息
+cat ssh_output.log | grep -v -E "identity file|debug1: Reading configuration data|debug1: auto-mux: Trying existing master" || true
+
+# 立即检查退出码，确保错误被捕获
+if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+  echo "##[error] 部署失败: 远程执行脚本失败"
+  echo "错误: 远程脚本执行失败，退出码: $DEPLOY_EXIT_CODE"
+  echo "错误详情:"
+  grep -E "error|failed|permission denied|No such file or directory|command not found" ssh_output.log || echo "无法从日志中提取具体错误信息"
+  echo "故障排除建议:"
+  echo "1. 检查deploy用户权限设置"
+  echo "2. 确认远程服务器上Docker和docker-compose已正确安装"
+  echo "3. 验证部署路径存在且有写入权限"
+  echo "4. 检查远程服务器上Git版本是否兼容"
+  # 在CI环境中设置错误状态
+  if [ -n "$GITHUB_ACTIONS" ]; then
+    echo "DEPLOY_STATUS=failure" >> $GITHUB_ENV
+  fi
+  exit 1
+fi
+
+# 清理日志文件
+rm -f ssh_output.log
 
 # 清理本地脚本
 rm -f deploy_simple.sh
