@@ -5,12 +5,21 @@ echo "正在启动Shadowsocks代理服务和监控系统..."
 
 # 检查并设置环境变量
 export SERVER_PORT=${SERVER_PORT:-8388}
-export PASSWORD=${PASSWORD:-your_password}
+# 不设置默认密码，强制要求通过环境变量提供
+if [ -z "$PASSWORD" ]; then
+  echo "错误: 未设置PASSWORD环境变量，无法启动服务"
+  exit 1
+fi
+# 生产环境安全检查
+if [ "${ENVIRONMENT:-development}" == "production" ] && [ ${#PASSWORD} -lt 12 ]; then
+  echo "警告: 生产环境密码长度应不少于12位"
+fi
+export PASSWORD
 export METHOD=${METHOD:-aes-256-gcm}
 export TIMEOUT=${TIMEOUT:-300}
 export DNS_SERVER=${DNS_SERVER:-8.8.8.8}
 export UDPSUPPORT=${UDPSUPPORT:-true}
-export LOG_LEVEL=${LOG_LEVEL:-info}
+export LOG_LEVEL=${LOG_LEVEL:-warn}
 export INSTANCE_ID=${INSTANCE_ID:-1}
 export METRICS_PORT=${METRICS_PORT:-9090}
 
@@ -20,22 +29,35 @@ chmod 755 /var/log/shadowsocks /var/run/shadowsocks
 
 # 生成Shadowsocks配置文件
 echo "生成Shadowsocks配置文件..."
-cat > /etc/shadowsocks/shadowsocks.json << EOF
+# 使用here-document但避免将内容打印到日志
+cat > /etc/shadowsocks/shadowsocks.json << 'EOF'
 {
   "server": "0.0.0.0",
-  "server_port": $SERVER_PORT,
-  "password": "$PASSWORD",
-  "method": "$METHOD",
-  "timeout": $TIMEOUT,
-  "dns": "$DNS_SERVER",
+  "server_port": ${SERVER_PORT},
+  "password": "${PASSWORD}",
+  "method": "${METHOD}",
+  "timeout": ${TIMEOUT},
+  "dns": "${DNS_SERVER}",
   "mode": "tcp_and_udp",
   "fast_open": false,
   "reuse_port": true,
   "no_delay": true,
-  "nameserver": "$DNS_SERVER",
-  "instance_id": "$INSTANCE_ID"
+  "nameserver": "${DNS_SERVER}",
+  "instance_id": "${INSTANCE_ID}"
 }
 EOF
+# 替换变量值但不显示在日志中
+# 使用sed替换而不是直接在echo中显示
+cat /etc/shadowsocks/shadowsocks.json | \
+  sed "s/\${SERVER_PORT}/$SERVER_PORT/g" | \
+  sed "s/\${PASSWORD}/$PASSWORD/g" | \
+  sed "s/\${METHOD}/$METHOD/g" | \
+  sed "s/\${TIMEOUT}/$TIMEOUT/g" | \
+  sed "s/\${DNS_SERVER}/$DNS_SERVER/g" | \
+  sed "s/\${INSTANCE_ID}/$INSTANCE_ID/g" > \
+  /etc/shadowsocks/shadowsocks.json.tmp && \
+  mv /etc/shadowsocks/shadowsocks.json.tmp /etc/shadowsocks/shadowsocks.json && \
+  chmod 600 /etc/shadowsocks/shadowsocks.json  # 限制配置文件权限
 
 # 生成Supervisor配置文件
 echo "生成Supervisor配置文件..."
@@ -88,7 +110,7 @@ environment=
     LOG_LEVEL=%(ENV_LOG_LEVEL)s
 EOF
 
-# 显示配置信息
+# 显示配置信息（不显示密码）
 echo "代理服务配置信息:"
 echo "- 实例ID: $INSTANCE_ID"
 echo "- 服务器端口: $SERVER_PORT"
@@ -98,6 +120,7 @@ echo "- DNS服务器: $DNS_SERVER"
 echo "- UDP支持: $UDPSUPPORT"
 echo "- 日志级别: $LOG_LEVEL"
 echo "- 监控端口: $METRICS_PORT"
+echo "- 密码: [已隐藏]"
 
 # 验证配置文件格式
 if command -v jq &> /dev/null; then

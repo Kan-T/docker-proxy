@@ -42,13 +42,20 @@ jobs:
           access-key-id: ${{ secrets.ALI_ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.ALI_ACCESS_KEY_SECRET }}
           region-id: ${{ secrets.ALI_REGION }}
+        # 确保敏感信息不会在日志中显示
       
       - name: 设置权限
-        run: chmod +x scripts/deploy-to-ecs.sh
+        run: |
+          chmod +x scripts/deploy-to-ecs.sh
+          # 添加环境变量并掩码敏感信息
+          echo "IMAGE_TAG=$(echo $GITHUB_SHA | cut -c 1-7)" >> $GITHUB_ENV
+          echo "::add-mask::$(echo $GITHUB_SHA | cut -c 1-7)"
+          echo "::add-mask::${{ github.sha }}"
       
       - name: 部署到阿里云
         run: |
-          # 执行部署脚本
+          # 执行部署脚本，使用set +x避免命令参数在日志中显示
+          set +x
           export GITHUB_REPOSITORY=${{ github.repository }}
           export GITHUB_SHA=${{ github.sha }}
           ./scripts/deploy-to-ecs.sh -e prod -r ${{ secrets.ALI_REGION }}

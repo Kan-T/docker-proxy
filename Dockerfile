@@ -29,28 +29,33 @@ RUN mkdir -p \
     /etc/shadowsocks \
     /var/log/supervisor \
     /var/log/shadowsocks \
-    /var/run/shadowsocks
+    /var/run/shadowsocks && \
+    # 设置权限以防止未授权访问
+    chmod 750 /etc/shadowsocks /var/log/shadowsocks
 
-# 复制配置文件模板
+# 复制配置文件模板 - 使用非root用户运行会更安全
 COPY config/shadowsocks.json.template /etc/shadowsocks/
 COPY config/supervisord.conf /etc/supervisor/conf.d/
 
 # 复制启动脚本
 COPY scripts/start.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh && \
+    # 安全最佳实践：确保配置文件模板不包含敏感信息
+    sed -i 's/"password": "[^"]*"/"password": "{{PASSWORD}}"/' /etc/shadowsocks/shadowsocks.json.template
 
 # 添加监控脚本
 COPY scripts/monitor.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/monitor.sh
 
-# 设置环境变量默认值
+# 设置环境变量默认值 - 注意：敏感信息如密码不应在Dockerfile中硬编码
+# 生产环境必须通过环境变量或secrets提供PASSWORD等敏感信息
 ENV SERVER_PORT=8388 \
-    PASSWORD=your_password \
+    PASSWORD= \
     METHOD=aes-256-gcm \
     TIMEOUT=300 \
     DNS_SERVER=8.8.8.8 \
     UDPSUPPORT=true \
-    LOG_LEVEL=info \
+    LOG_LEVEL=warn \
     INSTANCE_ID=1 \
     METRICS_PORT=9090
 

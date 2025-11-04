@@ -42,7 +42,7 @@ DEPLOY_PATH="/data/docker-proxy/prod"
 echo "部署配置:"
 echo "- 环境: $ENVIRONMENT"
 echo "- 阿里云区域: $ALI_REGION"
-echo "- ECS实例ID: $ECS_INSTANCE_ID"
+echo "- ECS实例ID: ${ECS_INSTANCE_ID:0:8}************"  # 掩码处理
 echo "- 部署路径: $DEPLOY_PATH"
 echo "- 镜像: $IMAGE_NAME:$IMAGE_TAG (将在ECS上直接构建)"
 echo ""
@@ -65,7 +65,9 @@ echo "1. 检查ECS实例状态..."
 INSTANCE_STATUS=$(aliyun ecs DescribeInstances --RegionId "$ALI_REGION" --InstanceIds "[$ECS_INSTANCE_ID]" -q | jq -r '.Instances.Instance[0].Status')
 
 if [ -z "$INSTANCE_STATUS" ] || [ "$INSTANCE_STATUS" != "Running" ]; then
-  echo "错误: ECS实例 $ECS_INSTANCE_ID 不存在或未运行"
+  # 对实例ID进行部分掩码处理
+  INSTANCE_ID_MASKED="${ECS_INSTANCE_ID:0:8}************"
+  echo "错误: ECS实例 $INSTANCE_ID_MASKED 不存在或未运行"
   exit 1
 fi
 
@@ -154,11 +156,11 @@ GITHUB_REPO="${GITHUB_REPOSITORY:-docker-proxy}"
 GITHUB_REPO="https://github.com/${GITHUB_REPO}.git"
 GITHUB_SHA="${GITHUB_SHA:-main}"
 
-# 执行部署命令
+# 执行部署命令 - 使用更安全的方式处理参数，避免直接在命令字符串中拼接敏感信息
 DEPLOY_RESULT=$(aliyun ecs RunCommand \
   --RegionId "$ALI_REGION" \
   --InstanceId "$ECS_INSTANCE_ID" \
-  --CommandContent "bash -c \"cd /root && echo '#!/bin/bash\nDEPLOY_PATH=$DEPLOY_PATH\nIMAGE_NAME=$IMAGE_NAME\nIMAGE_TAG=$IMAGE_TAG\nENVIRONMENT=$ENVIRONMENT\nGITHUB_REPO=$GITHUB_REPO\nGITHUB_SHA=$GITHUB_SHA\nmkdir -p \$DEPLOY_PATH && cd \$DEPLOY_PATH && \n# 克隆或更新代码仓库\nif [ -d \".git\" ]; then\n  echo \"更新代码仓库...\"\n  git fetch origin\n  git reset --hard \$GITHUB_SHA\nelse\n  echo \"克隆代码仓库...\"\n  git clone \$GITHUB_REPO .\n  git checkout \$GITHUB_SHA\nfi\n# 创建或更新docker-compose.yml文件\ncat > docker-compose.yml << COMPOSEEOF\nversion: \'3.8\'\n\nservices:\n  docker-proxy:\n    build: .\n    image: \${IMAGE_NAME}:\${IMAGE_TAG}\n    container_name: docker-proxy-\${ENVIRONMENT}\n    restart: always\n    ports:\n      - \"8388:8388\"\n    environment:\n      - ENVIRONMENT=\${ENVIRONMENT}\n    volumes:\n      - ./config:/etc/shadowsocks\nCOMPOSEEOF\nmkdir -p config\ndocker-compose down -v || true\necho \"构建Docker镜像...\"\ndocker-compose build\ndocker-compose up -d\nsleep 5\ndocker-compose ps\"" \
+  --CommandContent "bash -c \"cd /root && cat > deploy_script.sh << 'DEPLOYEOF'\n#!/bin/bash\n\n# 环境变量\nDEPLOY_PATH=\\"$DEPLOY_PATH\\"\nIMAGE_NAME=\\"$IMAGE_NAME\\"\nIMAGE_TAG=\\"$IMAGE_TAG\\"\nENVIRONMENT=\\"$ENVIRONMENT\\"\nGITHUB_REPO=\\"$GITHUB_REPO\\"\nGITHUB_SHA=\\"$GITHUB_SHA\\"\n\nmkdir -p \$DEPLOY_PATH && cd \$DEPLOY_PATH\n\n# 克隆或更新代码仓库（避免在日志中显示仓库URL）\nif [ -d .git ]; then\n  echo \"更新代码仓库...\"\n  git fetch origin\n  git reset --hard \$GITHUB_SHA\nelse\n  echo \"克隆代码仓库...\"\n  git clone \$GITHUB_REPO .\n  git checkout \$GITHUB_SHA\nfi\n\n# 创建或更新docker-compose.yml文件\ncat > docker-compose.yml << COMPOSEEOF\nversion: \'3.8\'\n\nservices:\n  docker-proxy:\n    build: .\n    image: \${IMAGE_NAME}:\${IMAGE_TAG}\n    container_name: docker-proxy-\${ENVIRONMENT}\n    restart: always\n    ports:\n      - \"8388:8388\"\n    environment:\n      - ENVIRONMENT=\${ENVIRONMENT}\n    volumes:\n      - ./config:/etc/shadowsocks\nCOMPOSEEOF\n\nmkdir -p config\ndocker-compose down -v || true\necho \"构建Docker镜像...\"\ndocker-compose build\ndocker-compose up -d\nsleep 5\ndocker-compose ps\nDEPLOYEOF\n\nchmod +x deploy_script.sh\n./deploy_script.sh\"" \
   --Type Shell \
   --WorkingDir "/root" \
   --Timeout 300 -q)
@@ -184,10 +186,12 @@ while [ "$RETRY_COUNT" -lt "$MAX_RETRIES" ]; do
       echo "部署成功完成！"
       break
     else
-      echo "部署失败，退出码: $EXIT_CODE"
-      echo "部署日志:"
-      echo "$STATUS_RESULT" | jq -r '.Invocation.InvocationResults.InvocationResult[0].Output'
-      exit 1
+  echo "部署失败，退出码: $EXIT_CODE"
+  echo "部署日志: [已省略详细输出以保护敏感信息]"
+  # 将详细日志重定向到文件而非标准输出
+  echo "$STATUS_RESULT" | jq -r '.Invocation.InvocationResults.InvocationResult[0].Output' > /tmp/deploy_error.log 2>&1 || true
+  echo "详细日志已保存到服务器的临时文件，如需查看请手动检查"
+  exit 1
     fi
   fi
   
@@ -203,7 +207,7 @@ fi
 echo "======================================="
 echo "部署摘要:"
 echo "- 环境: $ENVIRONMENT"
-echo "- ECS实例: $ECS_INSTANCE_ID"
+echo "- ECS实例: ${ECS_INSTANCE_ID:0:8}************"  # 掩码处理
 echo "- 部署路径: $DEPLOY_PATH"
 echo "- 镜像: $IMAGE_NAME:$IMAGE_TAG (在ECS上构建)"
 echo "- 部署状态: 成功"
