@@ -103,27 +103,58 @@ services:
       - ./config:/etc/shadowsocks
 COMPOSEEOF
 
+# 3. 创建docker-compose配置
 # 确保配置目录存在
 mkdir -p config
 
-# 4. 停止旧容器 - 支持反复执行，即使容器不存在也不会失败
-echo "4. 停止旧容器..."
+# 4. 检查Docker服务状态
+echo "4. 检查Docker服务状态..."
+if ! docker info > /dev/null 2>&1; then
+  echo "⚠️ Docker服务可能未运行，尝试重启Docker服务..."
+  # 尝试重启Docker服务（不同系统有不同的重启命令）
+  sudo systemctl restart docker || sudo service docker restart || echo "无法重启Docker服务，请手动检查"
+  # 等待Docker服务恢复
+  sleep 10
+  # 再次检查
+  if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker服务仍未正常运行，请手动检查Docker服务状态"
+    exit 1
+  fi
+  echo "✅ Docker服务已恢复"
+fi
+
+# 5. 停止旧容器 - 支持反复执行，即使容器不存在也不会失败
+echo "5. 停止旧容器..."
 docker-compose down -v --remove-orphans || true
 
 # 清理可能存在的悬空镜像（可选，但有助于保持环境清洁）
 echo "清理悬空镜像..."
 docker image prune -f 2>/dev/null || true
 
-# 5. 构建新镜像
-echo "5. 构建Docker镜像..."
-docker-compose build
+# 6. 构建新镜像（添加详细错误处理）
+echo "6. 构建Docker镜像..."
+# 捕获构建输出并检查错误
+BUILD_OUTPUT=$(docker-compose build 2>&1 || echo "BUILD_FAILED")
+if echo "$BUILD_OUTPUT" | grep -q "BUILD_FAILED"; then
+  echo "❌ Docker构建失败!"
+  echo "错误详情:"
+  # 显示关键错误信息
+  echo "$BUILD_OUTPUT" | grep -E "ERROR|failed|not found|permission denied" || echo "$BUILD_OUTPUT"
+  # 针对特定错误提供建议
+  if echo "$BUILD_OUTPUT" | grep -q "forwarding Ping: no such job"; then
+    echo "建议: 这可能是Docker守护进程问题，请尝试手动重启Docker服务并清理构建缓存"
+    echo "命令: sudo systemctl restart docker && docker builder prune -f"
+  fi
+  exit 1
+fi
+echo "✅ Docker镜像构建成功"
 
-# 6. 启动新容器
-echo "6. 启动新容器..."
+# 7. 启动新容器
+echo "7. 启动新容器..."
 docker-compose up -d
 
-# 7. 检查部署状态
-echo "7. 检查部署状态..."
+# 8. 检查部署状态
+echo "8. 检查部署状态..."
 sleep 5
 docker ps -a | grep docker-proxy
 
