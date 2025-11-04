@@ -140,18 +140,27 @@ GITHUB_REPO="https://github.com/${GITHUB_REPO}.git"
 GITHUB_SHA="${GITHUB_SHA:-main}"
 
 # 创建部署脚本内容
-cat > deploy_script.sh << 'DEPLOYEOF'
+cat > deploy_script.sh << "DEPLOYEOF"
 #!/bin/bash
+set -e
 
-# 环境变量
-DEPLOY_PATH="$DEPLOY_PATH"
-IMAGE_NAME="$IMAGE_NAME"
-IMAGE_TAG="$IMAGE_TAG"
-ENVIRONMENT="$ENVIRONMENT"
-GITHUB_REPO="$GITHUB_REPO"
-GITHUB_SHA="$GITHUB_SHA"
+# 输出环境变量用于调试
+echo "部署脚本环境变量:"
+echo "- DEPLOY_PATH: $DEPLOY_PATH"
+echo "- IMAGE_NAME: $IMAGE_NAME"
+echo "- IMAGE_TAG: $IMAGE_TAG"
+echo "- ENVIRONMENT: $ENVIRONMENT"
+echo "- GITHUB_REPO: $GITHUB_REPO"
+echo "- GITHUB_SHA: $GITHUB_SHA"
 
-mkdir -p "$DEPLOY_PATH" && cd "$DEPLOY_PATH"
+# 确保目录存在并切换到该目录
+echo "创建部署目录并切换..."
+mkdir -p "$DEPLOY_PATH"
+cd "$DEPLOY_PATH" || {
+  echo "错误: 无法切换到部署目录 $DEPLOY_PATH"
+  exit 1
+}
+echo "当前工作目录: $(pwd)"
 
 # 克隆或更新代码仓库
 if [ -d .git ]; then
