@@ -213,16 +213,72 @@ echo "当前工作目录: $(pwd)"
 echo "目录内容:"
 ls -la
 
+# 检查目录是否可写
+if [ ! -w "." ]; then
+  echo "警告: 当前目录不可写!"
+  # 备选方案: 使用临时目录
+  TEMP_DEPLOY="/tmp/docker-proxy-$ENVIRONMENT"
+  echo "尝试使用临时目录: $TEMP_DEPLOY"
+  mkdir -p "$TEMP_DEPLOY"
+  cd "$TEMP_DEPLOY"
+  echo "切换到临时工作目录: $(pwd)"
+  DEPLOY_TEMP_MODE=true
+fi
+
 # 克隆或更新代码仓库
 if [ -d .git ]; then
   echo "更新代码仓库..."
-  git fetch origin
-  git reset --hard "$GITHUB_SHA"
+  # 尝试使用sudo执行git操作
+  if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+    sudo -S git fetch origin || {
+      echo "sudo git fetch失败，尝试直接更新..."
+      git fetch origin
+    }
+    sudo -S git reset --hard "$GITHUB_SHA" || {
+      echo "sudo git reset失败，尝试直接更新..."
+      git reset --hard "$GITHUB_SHA"
+    }
+  else
+    # 直接执行git操作
+    git fetch origin
+    git reset --hard "$GITHUB_SHA"
+  fi
 else
   echo "克隆代码仓库..."
-  git clone "$GITHUB_REPO" .
-  git checkout "$GITHUB_SHA"
+  # 尝试使用sudo克隆
+  if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+    sudo -S git clone "$GITHUB_REPO" . || {
+      echo "sudo git clone失败，尝试直接克隆..."
+      git clone "$GITHUB_REPO" .
+    }
+    sudo -S git checkout "$GITHUB_SHA" || {
+      echo "sudo git checkout失败，尝试直接切换..."
+      git checkout "$GITHUB_SHA"
+    }
+  else
+    # 直接执行克隆
+    git clone "$GITHUB_REPO" .
+    git checkout "$GITHUB_SHA"
+  fi
 fi
+
+# 如果使用了临时目录，需要复制文件到目标目录
+if [ "$DEPLOY_TEMP_MODE" = "true" ]; then
+  echo "将文件从临时目录复制到目标目录..."
+  if command -v sudo > /dev/null; then
+    sudo -S cp -r * "$DEPLOY_PATH/"
+    sudo -S chown -R "$USER":"$USER" "$DEPLOY_PATH"
+    sudo -S chmod -R 775 "$DEPLOY_PATH"
+    # 切换回目标部署目录
+    cd "$DEPLOY_PATH"
+  else
+    echo "警告: 无法将临时目录内容复制到目标目录，因为没有sudo权限"
+    echo "将直接在临时目录中构建部署"
+  fi
+fi
+
+# 再次确认当前工作目录
+echo "最终工作目录: $(pwd)"
 
 # 创建或更新docker-compose.yml文件
 cat > docker-compose.yml << COMPOSEEOF
@@ -243,20 +299,66 @@ services:
 COMPOSEEOF
 
 mkdir -p config
-docker-compose down -v || true
+
+# 处理Docker Compose操作，添加sudo支持
+echo "停止旧容器..."
+if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+  sudo -S docker-compose down -v || {
+    echo "sudo docker-compose down失败，尝试直接停止..."
+    docker-compose down -v || true
+  }
+else
+  docker-compose down -v || true
+fi
+
 echo "构建Docker镜像..."
-docker-compose build
-docker-compose up -d
+if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+  sudo -S docker-compose build || {
+    echo "sudo docker-compose build失败，尝试直接构建..."
+    docker-compose build
+  }
+else
+  docker-compose build
+fi
+
+echo "启动容器..."
+if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+  sudo -S docker-compose up -d || {
+    echo "sudo docker-compose up失败，尝试直接启动..."
+    docker-compose up -d
+  }
+else
+  docker-compose up -d
+fi
+
 sleep 5
-docker-compose ps
 
 # 检查服务状态
-if docker-compose ps | grep "Up"; then
-  echo "服务部署成功并正在运行"
-  exit 0
+echo "检查服务状态..."
+if command -v sudo > /dev/null && [ "$DEPLOY_TEMP_MODE" != "true" ]; then
+  if sudo -S docker-compose ps | grep "Up" || docker-compose ps | grep "Up"; then
+    echo "服务部署成功并正在运行"
+    exit 0
+  else
+    echo "服务部署失败或未正常启动"
+    echo "查看容器日志获取更多信息..."
+    if command -v sudo > /dev/null; then
+      sudo -S docker-compose logs --tail 50
+    else
+      docker-compose logs --tail 50
+    fi
+    exit 1
+  fi
 else
-  echo "服务部署失败或未正常启动"
-  exit 1
+  if docker-compose ps | grep "Up"; then
+    echo "服务部署成功并正在运行"
+    exit 0
+  else
+    echo "服务部署失败或未正常启动"
+    echo "查看容器日志获取更多信息..."
+    docker-compose logs --tail 50
+    exit 1
+  fi
 fi
 DEPLOYEOF
 
@@ -270,6 +372,9 @@ scp deploy_script.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_script.sh
 cat > deploy_temp.sh << DEPLOYEOF
 #!/bin/bash
 set -x
+
+# 初始化临时部署模式变量
+DEPLOY_TEMP_MODE=false
 
 # 显示系统信息
 echo '=== 系统信息 ==='
@@ -289,12 +394,52 @@ echo 'DEPLOY_PATH: $DEPLOY_PATH'
 
 # 准备目录
 echo '=== 目录准备 ==='
-mkdir -p "$DEPLOY_PATH"
+
+# 方法1: 尝试使用sudo创建目录并设置权限（首选）
+if command -v sudo > /dev/null; then
+  echo "尝试使用sudo创建目录和设置权限..."
+  # 使用-S参数允许从stdin读取密码，尽管在CI环境中通常不提供密码
+  # 但这是在ECS上执行，可能已经配置了NOPASSWD
+  echo "使用sudo创建目录: $DEPLOY_PATH"
+  sudo -S mkdir -p "$DEPLOY_PATH" || {
+    echo "sudo创建目录失败，尝试备选方案..."
+  }
+  
+  # 尝试设置所有者为当前用户
+  echo "尝试设置目录所有者为当前用户..."
+  sudo -S chown -R "$USER":"$USER" "$DEPLOY_PATH" || {
+    echo "sudo设置所有者失败，但继续尝试..."
+  }
+else
+  # 备选方法：如果没有sudo或sudo失败，尝试直接创建
+  echo "没有sudo命令或sudo失败，尝试直接创建目录..."
+  mkdir -p "$DEPLOY_PATH" || {
+    echo "警告: 无法创建目录 $DEPLOY_PATH，将尝试使用用户主目录..."
+    # 如果无法在指定路径创建，使用用户主目录作为备选
+    DEPLOY_PATH="$HOME/docker-proxy-$ENVIRONMENT"
+    echo "切换到备选部署路径: $DEPLOY_PATH"
+    mkdir -p "$DEPLOY_PATH"
+    # 设置临时部署模式标志
+    DEPLOY_TEMP_MODE=true
+  }
+fi
+
+# 导出DEPLOY_TEMP_MODE变量供部署脚本使用
+export DEPLOY_TEMP_MODE
+
 echo '父目录权限:'
 ls -la "$(dirname "$DEPLOY_PATH")"
 
 echo '设置部署目录权限...'
-chmod -R 775 "$DEPLOY_PATH"
+# 尝试使用sudo修改权限
+if command -v sudo > /dev/null; then
+  sudo -S chmod -R 775 "$DEPLOY_PATH" || {
+    echo "sudo修改权限失败，尝试直接修改..."
+    chmod -R 775 "$DEPLOY_PATH" 2>/dev/null || echo "无法修改权限，但继续..."
+  }
+else
+  chmod -R 775 "$DEPLOY_PATH" 2>/dev/null || echo "无法修改权限，但继续..."
+fi
 
 echo '=== 部署目录状态 ==='
 ls -la "$DEPLOY_PATH" 2>/dev/null || echo '目录为空或不存在'
