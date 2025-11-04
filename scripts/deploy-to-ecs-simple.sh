@@ -142,80 +142,88 @@ DEPLOYEOF
 chmod +x deploy_simple.sh
 
 # 上传并执行部署脚本
-echo "上传部署脚本到ECS实例..."
-# 移除-q参数，确保错误信息在CI环境中显示
-scp -v deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh 2>&1 | tee scp_output.log
-SCP_EXIT_CODE=${PIPESTATUS[0]}
+echo "上传部署脚本到ECS实例..." 1>&2
+
+# 在GitHub Actions环境中使用更直接的方法，确保错误信息被捕获
+echo "尝试SCP上传..." 1>&2
+# 直接执行scp，不使用tee，确保错误直接传递
+echo "执行命令: scp deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh" 1>&2
+scp -v deploy_simple.sh ${ECS_USER}@${ECS_HOST}:/tmp/deploy_simple.sh
+SCP_EXIT_CODE=$?
 
 # 立即检查SCP退出码，确保错误被捕获
 if [ $SCP_EXIT_CODE -ne 0 ]; then
-  echo "##[error] 部署失败: SCP上传脚本失败"
-  echo "错误: SCP上传失败，退出码: $SCP_EXIT_CODE"
-  echo "连接信息: ${ECS_USER}@${ECS_HOST}"
-  echo "错误详情:" 
-  grep -E "permission denied|connection refused|no route to host|invalid key|timeout|failed|error" scp_output.log || echo "无法从日志中提取具体错误信息"
-  echo "故障排除建议:"
-  echo "1. 检查SSH密钥配置是否正确"
-  echo "2. 确认ECS_HOST和ECS_USER环境变量设置是否正确"
-  echo "3. 验证网络连接和防火墙设置"
-  echo "4. 确认目标服务器上deploy用户有/tmp目录的写入权限"
+  # 使用GitHub Actions的错误标记格式，并输出到标准错误
+  echo "##[error] 部署失败: SCP上传脚本失败" 1>&2
+  echo "错误: SCP上传失败，退出码: $SCP_EXIT_CODE" 1>&2
+  echo "连接信息: ${ECS_USER}@${ECS_HOST}" 1>&2
+  echo "故障排除建议:" 1>&2
+  echo "1. 检查SSH密钥配置是否正确" 1>&2
+  echo "2. 确认ECS_HOST和ECS_USER环境变量设置是否正确" 1>&2
+  echo "3. 验证网络连接和防火墙设置" 1>&2
+  echo "4. 确认目标服务器上deploy用户有/tmp目录的写入权限" 1>&2
   # 在CI环境中设置错误状态
   if [ -n "$GITHUB_ACTIONS" ]; then
     echo "DEPLOY_STATUS=failure" >> $GITHUB_ENV
   fi
-  exit 1
+  # 确保退出码被正确传递
+  exit $SCP_EXIT_CODE
 fi
-# 清理日志文件
-rm -f scp_output.log
+
+echo "SCP上传成功!" 1>&2
 
 # 执行部署脚本 - 避免显示命令参数
-echo "执行部署脚本到远程服务器..."
-# 添加更安全的SSH选项和详细错误处理
+echo "执行部署脚本到远程服务器..." 1>&2
+
+# 在GitHub Actions环境中使用更直接的方法，确保错误信息被捕获
+echo "尝试SSH远程执行..." 1>&2
+# 定义基本SSH选项
 SSH_OPTIONS="-v -o StrictHostKeyChecking=no -o ConnectTimeout=30"
+echo "执行命令: ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} 'chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh'" 1>&2
 
-# 使用tee命令确保输出同时显示在控制台和日志文件中
-ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "set +x && chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'" 2>&1 | tee ssh_output.log
-DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
+# 直接执行SSH，不使用tee，确保错误直接传递
+ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'"
+DEPLOY_EXIT_CODE=$?
 
-# 过滤SSH输出中的敏感信息，但保留错误信息
-cat ssh_output.log | grep -v -E "identity file|debug1: Reading configuration data|debug1: auto-mux: Trying existing master" || true
-
-# 立即检查退出码，确保错误被捕获
+# 检查部署退出码
 if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
-  echo "##[error] 部署失败: 远程执行脚本失败"
-  echo "错误: 远程脚本执行失败，退出码: $DEPLOY_EXIT_CODE"
-  echo "错误详情:"
-  grep -E "error|failed|permission denied|No such file or directory|command not found" ssh_output.log || echo "无法从日志中提取具体错误信息"
-  echo "故障排除建议:"
-  echo "1. 检查deploy用户权限设置"
-  echo "2. 确认远程服务器上Docker和docker-compose已正确安装"
-  echo "3. 验证部署路径存在且有写入权限"
-  echo "4. 检查远程服务器上Git版本是否兼容"
+  # 使用GitHub Actions的错误标记格式，并输出到标准错误
+  echo "##[error] 部署失败: 远程执行脚本失败" 1>&2
+  echo "错误: 远程执行脚本失败，退出码: $DEPLOY_EXIT_CODE" 1>&2
+  echo "连接信息: ${ECS_USER}@${ECS_HOST}" 1>&2
+  echo "故障排除建议:" 1>&2
+  echo "1. 检查目标服务器上deploy用户权限设置是否正确" 1>&2
+  echo "2. 验证与远程服务器的网络连接和SSH配置" 1>&2
+  echo "3. 确认远程服务器上Docker服务状态正常" 1>&2
+  echo "4. 检查部署路径权限和依赖安装" 1>&2
   # 在CI环境中设置错误状态
   if [ -n "$GITHUB_ACTIONS" ]; then
     echo "DEPLOY_STATUS=failure" >> $GITHUB_ENV
   fi
-  exit 1
+  # 确保退出码被正确传递
+  exit $DEPLOY_EXIT_CODE
 fi
 
-# 清理日志文件
-rm -f ssh_output.log
+echo "SSH远程执行成功!" 1>&2
 
 # 清理本地脚本
 rm -f deploy_simple.sh
 
-# 显示结果 - CI/CD友好的输出
+# 设置CI环境中的部署状态 - 直接在成功路径中设置
 if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
+  # 在CI环境中设置部署状态
+  if [ -n "$GITHUB_ACTIONS" ]; then
+    echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
+  fi
+  
   echo ""
   echo "======================================="
   echo "✅ 部署成功完成!"
   echo "- 镜像标签: $IMAGE_TAG"
   echo "- 环境: $ENVIRONMENT"
   echo "======================================="
-  # 在CI环境中设置部署状态
-  if [ -n "$GITHUB_ACTIONS" ]; then
-    echo "DEPLOY_STATUS=success" >> $GITHUB_ENV
-  fi
+  # 确保以成功状态退出
+  exit 0
 else
   echo ""
   echo "======================================="
@@ -229,7 +237,6 @@ else
   if [ -n "$GITHUB_ACTIONS" ]; then
     echo "DEPLOY_STATUS=failure" >> $GITHUB_ENV
   fi
-  exit 1
+  # 确保以失败状态退出
+  exit $DEPLOY_EXIT_CODE
 fi
-
-exit 0
