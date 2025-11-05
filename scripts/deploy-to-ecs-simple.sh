@@ -234,7 +234,7 @@ while [ $(($(date +%s) - START_TIME)) -lt $MAX_WAIT ]; do
     sleep $WAIT_INTERVAL
   else
     # 进程已结束，获取退出码
-    DEPLOY_EXIT_CODE=$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "grep -E '部署成功完成|部署失败' /tmp/deploy.log | tail -1 | grep -q '成功' && echo 0 || echo 1")
+    DEPLOY_EXIT_CODE=$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "grep -E '部署成功|部署失败' /tmp/deploy.log | tail -1 | grep -q '成功' && echo 0 || echo 1")
     echo "部署脚本执行完成，退出码: $DEPLOY_EXIT_CODE" 1>&2
     # 显示部署日志
     echo "部署日志:
