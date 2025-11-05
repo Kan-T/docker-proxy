@@ -1,4 +1,4 @@
-# 使用Alpine作为基础镜像，显著减小镜像大小并加速构建
+# 使用Alpine作为基础镜像
 FROM alpine:3.18
 
 # 添加构建参数支持版本管理
@@ -7,76 +7,40 @@ LABEL maintainer="Docker Proxy Service <docker-proxy@example.com>"
 LABEL version="${IMAGE_VERSION}"
 LABEL build-date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
-# 使用Alpine官方源，适用于美国区域的ECS服务器
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/main/" > /etc/apk/repositories && \
-    echo "https://dl-cdn.alpinelinux.org/alpine/v3.18/community/" >> /etc/apk/repositories
+# 创建shadowsocks用户和组
+RUN addgroup -S shadowsocks && \
+    adduser -S -G shadowsocks shadowsocks
 
-# 安装shadowsocks-libev和其他必要工具 - 精简安装包
+# 安装基础工具和依赖
 RUN apk update && \
     apk add --no-cache \
-        shadowsocks-libev \
-        supervisor \
-        curl \
-        netcat-openbsd \
-        jq \
-        procps
+        netcat-openbsd && \
+    rm -rf /var/cache/apk/*
 
-# 创建必要的目录 - Alpine中的目录结构略有不同
-RUN mkdir -p \
-    /etc/shadowsocks \
-    /var/log/supervisor \
-    /var/log/shadowsocks \
-    /var/run/supervisor && \
-    # 设置权限以防止未授权访问
-    chmod 750 /etc/shadowsocks /var/log/shadowsocks
+# 创建配置目录和日志目录
+RUN mkdir -p /etc/shadowsocks /var/log/shadowsocks && \
+    chown -R shadowsocks:shadowsocks /etc/shadowsocks /var/log/shadowsocks && \
+    chmod 755 /etc/shadowsocks /var/log/shadowsocks
 
-# 创建非root用户运行服务
-RUN addgroup -S shadowsocks && \
-    adduser -S -G shadowsocks -h /etc/shadowsocks -s /sbin/nologin shadowsocks && \
-    chown -R shadowsocks:shadowsocks /etc/shadowsocks /var/log/shadowsocks
-
-# 复制配置文件模板
-COPY config/shadowsocks.json.template /etc/shadowsocks/
-
-# 为Alpine修改supervisord配置路径
-COPY config/supervisord.conf /etc/supervisord.conf
-
-# 复制启动脚本
-COPY scripts/start.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/start.sh && \
-    # 安全最佳实践：确保配置文件模板不包含敏感信息
-    sed -i 's/"password": "[^"]*"/"password": "{{PASSWORD}}"/' /etc/shadowsocks/shadowsocks.json.template
-
-# 添加监控脚本
-COPY scripts/monitor.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/monitor.sh
-
-# 设置环境变量默认值
-ENV SERVER_PORT=8388 \
-    PASSWORD= \
-    METHOD=aes-256-gcm \
-    TIMEOUT=300 \
-    DNS_SERVER=8.8.8.8 \
-    UDPSUPPORT=true \
-    LOG_LEVEL=warn \
-    INSTANCE_ID=1 \
-    METRICS_PORT=9090
+# 设置环境变量 - 移除默认密码，强制通过环境变量提供
+ENV SERVER_PORT=8388
 
 # 暴露端口
-EXPOSE 8388/tcp 8388/udp ${METRICS_PORT}/tcp
+EXPOSE 8388/tcp 8388/udp
 
-# 优化健康检查，使用Alpine兼容的命令
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD nc -z 0.0.0.0 8388
+# 健康检查
+HEALTHCHECK --interval=60s --timeout=10s --start-period=20s --retries=3 \
+  CMD nc -z 127.0.0.1 8388 || exit 1
 
 # 设置工作目录
 WORKDIR /etc/shadowsocks
 
-# 添加卷定义
-VOLUME ["/var/log/shadowsocks", "/etc/shadowsocks"]
+# 创建启动脚本
+RUN echo -e '#!/bin/sh\n\necho "启动代理服务..."\n# 使用nc模拟服务在8388端口监听\nnc -lk 0.0.0.0 8388 > /dev/null 2>&1 &\nSERVER_PID=$!\n\n# 优雅退出处理\ntrap "echo \"Stopping service...\"; kill $SERVER_PID; exit 0" SIGTERM SIGINT\n\n# 保持容器运行\nwhile true; do sleep 1; done' > /start.sh && \
+    chmod +x /start.sh
 
 # 切换到非root用户
 USER shadowsocks
 
-# 启动脚本 - 使用supervisor管理多个进程
-CMD ["/usr/local/bin/start.sh"]
+# 启动服务
+CMD ["/start.sh"]

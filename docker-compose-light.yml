@@ -32,13 +32,17 @@ services:
       - ./logs/shadowsocks:/var/log/shadowsocks
     environment:
       - SERVER_PORT=8388
-      - PASSWORD=${PASSWORD:-your_password}
+      - PASSWORD=${PASSWORD:?必须设置PASSWORD环境变量}
       - METHOD=${METHOD:-aes-256-gcm}
-      - TIMEOUT=${TIMEOUT:-300}
-      - DNS_SERVER=${DNS_SERVER:-8.8.8.8}
     ports:
       - "8388:8388/tcp"
       - "8388:8388/udp"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 0.0.0.0 8388"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     deploy:
       resources:
         limits:

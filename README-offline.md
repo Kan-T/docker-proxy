@@ -95,14 +95,21 @@ docker images
 mkdir -p logs
 ```
 
-### 3. 修改配置文件（重要）
+### 3. 设置环境变量（重要）
 
-编辑`docker-compose-offline.yml`文件，修改默认密码：
+创建`.env`文件或在启动命令中设置密码环境变量：
 
-```yaml
-environment:
-  - PASSWORD=your_secure_password  # 修改为安全的密码
+```bash
+# 创建.env文件
+cat > .env << EOF
+PASSWORD=your_secure_password  # 使用强密码
+EOF
+
+# 或直接在命令中设置
+PASSWORD=your_secure_password docker compose -f docker-compose-offline.yml up -d
 ```
+
+**注意：** 生产环境中必须设置强密码，配置文件已移除默认密码以提高安全性。
 
 ### 4. 启动服务
 
@@ -136,9 +143,10 @@ docker compose -f docker-compose-offline.yml logs
 
 ## 安全注意事项
 
-- 务必修改默认密码
-- 考虑使用防火墙限制访问来源
-- 定期更新镜像（当有条件连接网络时）
+- **必须设置密码**：部署前必须设置强密码，不再提供默认密码
+- **使用防火墙**：仅开放必要的端口，限制访问来源IP
+- **定期更新**：当有条件连接网络时，及时更新镜像以修复安全漏洞
+- **密码管理**：避免在命令历史中明文记录密码
 
 ## 扩展选项
 

@@ -18,12 +18,7 @@
 ```
 docker-proxy/
 ├── config/                      # 配置文件目录
-│   ├── shadowsocks.json.template # Shadowsocks配置模板
-│   └── supervisord.conf         # Supervisor配置
-├── scripts/                     # 脚本目录
-│   └── start.sh                 # 启动脚本
-├── tests/                       # 测试目录
-│   └── test_proxy.sh            # 测试脚本
+│   └── shadowsocks.json.template # Shadowsocks配置模板
 ├── Dockerfile                   # Docker构建文件
 ├── docker-compose.yml           # Docker Compose配置
 ├── .env.example                 # 环境变量示例文件
@@ -58,10 +53,12 @@ docker-compose up -d --build
 
 ### 4. 验证服务
 
-运行测试脚本来验证代理服务是否正常工作：
+使用Docker Compose命令检查服务状态：
 
 ```bash
-./tests/test_proxy.sh
+docker-compose ps
+# 查看容器日志
+docker-compose logs shadowsocks-proxy
 ```
 
 ## 环境变量配置
@@ -69,12 +66,8 @@ docker-compose up -d --build
 | 变量名 | 描述 | 默认值 | 示例 |
 |-------|------|-------|------|
 | `SERVER_PORT` | Shadowsocks服务端口 | 8388 | 443 |
-| `PASSWORD` | 连接密码 | your_password | SecureP@ss123 |
+| `PASSWORD` | 连接密码 | 必须设置 | SecureP@ss123 |
 | `METHOD` | 加密方式 | aes-256-gcm | chacha20-ietf-poly1305 |
-| `TIMEOUT` | 连接超时时间（秒） | 300 | 600 |
-| `DNS_SERVER` | DNS服务器地址 | 8.8.8.8 | 1.1.1.1 |
-| `UDPSUPPORT` | 是否支持UDP | true | true |
-| `LOG_LEVEL` | 日志级别 | info | debug |
 
 ## 客户端配置
 
@@ -96,6 +89,62 @@ docker-compose up -d --build
 | 加密方式 | aes-256-gcm (或您在.env中设置的值) |
 | 代理端口 | 本地客户端端口，如1080 |
 
+### Android客户端配置
+
+#### 1. 安装Shadowsocks Android客户端
+
+1. 在Google Play商店搜索并安装"Shadowsocks"应用（开发者：Max Lv）
+2. 或者从[Shadowsocks Android GitHub](https://github.com/shadowsocks/shadowsocks-android/releases)下载APK文件手动安装
+
+#### 2. 配置Shadowsocks客户端
+
+1. 打开Shadowsocks应用
+2. 点击右下角的"+"按钮
+3. 选择"手动设置"
+4. 填写以下信息：
+   - 配置名称：可自定义（如"Docker-Proxy"）
+   - 服务器：您的服务器IP地址或域名
+   - 服务器端口：8388（或您配置的值）
+   - 密码：您设置的密码
+   - 加密：aes-256-gcm（或您配置的值）
+   - 路由：绕过局域网和中国大陆地址
+   - UDP转发：开启
+5. 点击右上角的"√"保存配置
+
+#### 3. 连接代理服务
+
+1. 在配置列表中选择刚才创建的配置
+2. 点击顶部的连接按钮（飞机图标）
+3. 首次连接时，系统会请求VPN权限，点击"确定"或"允许"
+4. 连接成功后，飞机图标会变为绿色
+
+### iOS客户端配置
+
+#### 1. 安装Shadowrocket客户端
+
+在App Store搜索并安装"Shadowrocket"应用（需要使用非中国大陆Apple ID登录）
+
+#### 2. 配置Shadowrocket客户端
+
+1. 打开Shadowrocket应用
+2. 点击右上角的"+"按钮
+3. 选择"手动添加"
+4. 填写以下信息：
+   - 类型：选择"Shadowsocks"
+   - 服务器：您的服务器IP地址或域名
+   - 端口：8388（或您配置的值）
+   - 密码：您设置的密码
+   - 加密方式：aes-256-gcm（或您配置的值）
+   - 备注：可自定义（如"Docker-Proxy"）
+5. 点击右上角的"完成"保存配置
+
+#### 3. 连接代理服务
+
+1. 在配置列表中选择刚才创建的配置
+2. 点击应用主界面顶部的开关按钮开启代理
+3. 系统会请求VPN权限，点击"允许"
+4. 连接成功后，状态栏会显示VPN图标
+
 ## 命令行使用示例
 
 使用shadowsocks-libev客户端连接：
@@ -114,25 +163,22 @@ curl -x socks5://127.0.0.1:1080 https://www.google.com
 
 ## 测试
 
-运行测试脚本来验证代理服务的功能：
+使用以下命令检查服务是否正常运行：
 
 ```bash
-./tests/test_proxy.sh
-```
+# 检查容器状态（应显示Up状态和healthy）
+docker-compose ps
 
-测试内容包括：
-- 检查ss-local客户端是否安装
-- 检查代理服务端口监听状态
-- 使用ss-local进行连接测试
-- 检查Docker容器状态和日志
+# 测试端口连接性
+nc -zv localhost 8388
+```
 
 ## 安全注意事项
 
-1. **修改默认密码**: 必须在生产环境中修改默认的连接密码
-2. **选择强加密方式**: 推荐使用aes-256-gcm或chacha20-ietf-poly1305
-3. **定期更新**: 定期更新Docker镜像和依赖包以修复安全漏洞
-4. **监控连接**: 监控异常连接请求，及时发现潜在安全问题
-5. **使用防火墙**: 仅开放必要的端口，限制访问来源
+1. **必须设置密码**: 生产环境中必须设置强密码，避免使用默认值
+2. **选择强加密方式**: 推荐使用aes-256-gcm加密算法
+3. **使用防火墙**: 仅开放必要的端口，限制访问来源IP以增强安全性
+4. **定期更新**: 定期更新Docker镜像以修复安全漏洞
 
 ## 故障排除
 

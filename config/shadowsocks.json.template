@@ -1,13 +1,9 @@
 {
   "server": "0.0.0.0",
   "server_port": ${SERVER_PORT},
-  "password": "${PASSWORD}",
+  "password": "PLACEHOLDER",
   "method": "${METHOD}",
   "timeout": ${TIMEOUT},
-  "dns": "${DNS_SERVER}",
   "mode": "tcp_and_udp",
-  "fast_open": false,
-  "reuse_port": true,
-  "no_delay": true,
-  "nameserver": "${DNS_SERVER}"
+  "fast_open": false
 }
