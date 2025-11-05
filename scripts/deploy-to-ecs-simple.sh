@@ -215,13 +215,42 @@ echo "执行部署脚本到远程服务器..." 1>&2
 
 # 在GitHub Actions环境中使用更直接的方法，确保错误信息被捕获
 echo "尝试SSH远程执行..." 1>&2
-# 定义基本SSH选项
-SSH_OPTIONS="-v -o StrictHostKeyChecking=no -o ConnectTimeout=30"
+# 定义增强的SSH选项，增加连接稳定性设置
+SSH_OPTIONS="-v -o StrictHostKeyChecking=no -o ConnectTimeout=180 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -o TCPKeepAlive=yes"
 echo "执行命令: ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} 'chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh'" 1>&2
 
-# 直接执行SSH，不使用tee，确保错误直接传递
-ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_simple.sh && /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA'"
-DEPLOY_EXIT_CODE=$?
+# 使用nohup在后台执行部署脚本，避免构建过程中的连接超时问题
+ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "chmod +x /tmp/deploy_simple.sh && nohup /tmp/deploy_simple.sh '$DEPLOY_PATH' '$IMAGE_NAME' '$IMAGE_TAG' '$ENVIRONMENT' '$GITHUB_REPO' '$GITHUB_SHA' > /tmp/deploy.log 2>&1 & echo \$!" | read PID
+
+# 定期检查部署状态，避免SSH连接断开
+MAX_WAIT=600  # 最大等待时间10分钟
+WAIT_INTERVAL=15  # 每15秒检查一次
+START_TIME=$(date +%s)
+
+while [ $(($(date +%s) - START_TIME)) -lt $MAX_WAIT ]; do
+  echo "正在等待部署完成，已等待 $(($(date +%s) - START_TIME)) 秒..." 1>&2
+  # 检查进程是否仍在运行
+  if ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "ps -p $PID > /dev/null 2>&1"; then
+    sleep $WAIT_INTERVAL
+  else
+    # 进程已结束，获取退出码
+    DEPLOY_EXIT_CODE=$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "grep -E '部署成功完成|部署失败' /tmp/deploy.log | tail -1 | grep -q '成功' && echo 0 || echo 1")
+    echo "部署脚本执行完成，退出码: $DEPLOY_EXIT_CODE" 1>&2
+    # 显示部署日志
+    echo "部署日志:
+$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "cat /tmp/deploy.log")" 1>&2
+    break
+  fi
+done
+
+# 如果超时，认为失败
+if [ $(($(date +%s) - START_TIME)) -ge $MAX_WAIT ]; then
+  echo "##[error] 部署超时: 超过 $MAX_WAIT 秒" 1>&2
+  DEPLOY_EXIT_CODE=1
+  # 尝试获取部分日志
+  echo "部署部分日志:
+$(ssh $SSH_OPTIONS ${ECS_USER}@${ECS_HOST} "cat /tmp/deploy.log 2>/dev/null || echo '无法获取日志'")" 1>&2
+fi
 
 # 检查部署退出码
 if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
